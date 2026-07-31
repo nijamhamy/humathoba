@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
     Users,
@@ -22,7 +22,8 @@ import {
     Vote,
     Video,
     Settings,
-    Calendar
+    Calendar,
+    Menu,
 } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 
@@ -32,6 +33,11 @@ export default function AdminDashboard() {
     const [loading, setLoading] = useState(true);
     const [uploading, setUploading] = useState(false);
     const [adminUser, setAdminUser] = useState(null);
+
+    // Mobile Sidebar State
+    const [sidebarOpen, setSidebarOpen] = useState(false);
+    const touchStartX = useRef(null);
+    const touchTracking = useRef(false);
 
     // Dynamic Database States
     const [pendingUsers, setPendingUsers] = useState([]);
@@ -103,6 +109,21 @@ export default function AdminDashboard() {
     useEffect(() => {
         fetchAdminAndData();
     }, []);
+
+    // Close mobile sidebar automatically when switching to desktop width
+    useEffect(() => {
+        const handleResize = () => {
+            if (window.innerWidth >= 768) setSidebarOpen(false);
+        };
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
+
+    // Lock body scroll while mobile sidebar is open
+    useEffect(() => {
+        document.body.style.overflow = sidebarOpen ? 'hidden' : '';
+        return () => { document.body.style.overflow = ''; };
+    }, [sidebarOpen]);
 
     const fetchAdminAndData = async () => {
         setLoading(true);
@@ -395,28 +416,90 @@ export default function AdminDashboard() {
 
     const activeLeaderObj = executiveData[selectedLeaderRole];
 
+    // Close the mobile sidebar (used by nav links / overlay)
+    const closeSidebar = () => setSidebarOpen(false);
+
+    // --- Swipe Gesture Handlers (mobile only) ---
+    const handleTouchStart = (e) => {
+        if (window.innerWidth >= 768) return;
+        const x = e.touches[0].clientX;
+        // Only start tracking a swipe if it begins near the left edge (to open)
+        // or anywhere on screen while the sidebar is already open (to close)
+        if (x < 40 || sidebarOpen) {
+            touchStartX.current = x;
+            touchTracking.current = true;
+        }
+    };
+
+    const handleTouchMove = (e) => {
+        if (!touchTracking.current || touchStartX.current === null) return;
+        const currentX = e.touches[0].clientX;
+        const diff = currentX - touchStartX.current;
+
+        if (!sidebarOpen && diff > 60) {
+            setSidebarOpen(true);
+            touchTracking.current = false;
+        } else if (sidebarOpen && diff < -60) {
+            setSidebarOpen(false);
+            touchTracking.current = false;
+        }
+    };
+
+    const handleTouchEnd = () => {
+        touchTracking.current = false;
+        touchStartX.current = null;
+    };
+
     return (
-        <div className="min-h-screen bg-slate-950 text-slate-100 flex font-sans selection:bg-emerald-500 selection:text-white">
-            {/* Sidebar */}
-            <aside className="w-64 bg-slate-900 border-r border-slate-800 hidden md:flex flex-col justify-between p-5">
+        <div
+            className="min-h-screen bg-slate-950 text-slate-100 flex font-sans selection:bg-emerald-500 selection:text-white relative"
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+        >
+            {/* Mobile Overlay Backdrop */}
+            {sidebarOpen && (
+                <div
+                    className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-40 md:hidden animate-in fade-in duration-200"
+                    onClick={closeSidebar}
+                />
+            )}
+
+            {/* Sidebar — fixed/slide-in on mobile, static on desktop */}
+            <aside
+                className={`fixed md:static inset-y-0 left-0 z-50 w-72 sm:w-64 bg-slate-900 border-r border-slate-800 flex flex-col justify-between p-5 transform transition-transform duration-300 ease-in-out md:translate-x-0 ${
+                    sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+                }`}
+            >
                 <div className="space-y-8">
-                    <Link to="/" className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-400 flex items-center justify-center text-white font-bold text-lg shadow-lg">
-                            MH
-                        </div>
-                        <div>
-                            <h2 className="text-sm font-bold text-white leading-none">
-                                Majlisul Hamiyyeen
-                            </h2>
-                            <p className="text-[10px] text-emerald-400 font-medium mt-1">
-                                Admin Control Panel
-                            </p>
-                        </div>
-                    </Link>
+                    <div className="flex items-center justify-between">
+                        <Link to="/" className="flex items-center gap-3" onClick={closeSidebar}>
+                            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-400 flex items-center justify-center text-white font-bold text-lg shadow-lg shrink-0">
+                                MH
+                            </div>
+                            <div>
+                                <h2 className="text-sm font-bold text-white leading-none">
+                                    Majlisul Hamiyyeen
+                                </h2>
+                                <p className="text-[10px] text-emerald-400 font-medium mt-1">
+                                    Admin Control Panel
+                                </p>
+                            </div>
+                        </Link>
+
+                        {/* Close button, mobile only */}
+                        <button
+                            onClick={closeSidebar}
+                            className="md:hidden p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                            aria-label="Close menu"
+                        >
+                            <X size={20} />
+                        </button>
+                    </div>
 
                     <nav className="space-y-1.5">
                         <button
-                            onClick={() => setActiveTab('dashboard')}
+                            onClick={() => { setActiveTab('dashboard'); closeSidebar(); }}
                             className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-medium transition-colors ${activeTab === 'dashboard'
                                 ? 'bg-emerald-600/10 border border-emerald-500/20 text-emerald-400 font-semibold'
                                 : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
@@ -428,6 +511,7 @@ export default function AdminDashboard() {
 
                         <Link
                             to="/admin/members"
+                            onClick={closeSidebar}
                             className="w-full flex items-center justify-between px-4 py-3 rounded-xl text-xs font-medium text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors group"
                         >
                             <div className="flex items-center gap-3">
@@ -439,6 +523,7 @@ export default function AdminDashboard() {
 
                         <Link
                             to="/admin/content"
+                            onClick={closeSidebar}
                             className="w-full flex items-center justify-between px-4 py-3 rounded-xl text-xs font-medium text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors group"
                         >
                             <div className="flex items-center gap-3">
@@ -450,6 +535,7 @@ export default function AdminDashboard() {
 
                         <Link
                             to="/admin/images"
+                            onClick={closeSidebar}
                             className="w-full flex items-center justify-between px-4 py-3 rounded-xl text-xs font-medium text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors group"
                         >
                             <div className="flex items-center gap-3">
@@ -459,9 +545,10 @@ export default function AdminDashboard() {
                             <ArrowRight size={14} className="opacity-0 group-hover:opacity-100 transition-opacity" />
                         </Link>
 
-                        {/* Events Schedule Link added */}
+                        {/* Events Schedule Link */}
                         <Link
                             to="/admin/events"
+                            onClick={closeSidebar}
                             className="w-full flex items-center justify-between px-4 py-3 rounded-xl text-xs font-medium text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors group"
                         >
                             <div className="flex items-center gap-3">
@@ -473,6 +560,7 @@ export default function AdminDashboard() {
 
                         <Link
                             to="/admin/polls"
+                            onClick={closeSidebar}
                             className="w-full flex items-center justify-between px-4 py-3 rounded-xl text-xs font-medium text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors group"
                         >
                             <div className="flex items-center gap-3">
@@ -484,6 +572,7 @@ export default function AdminDashboard() {
 
                         <Link
                             to="/admin/streams"
+                            onClick={closeSidebar}
                             className="w-full flex items-center justify-between px-4 py-3 rounded-xl text-xs font-medium text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors group"
                         >
                             <div className="flex items-center gap-3">
@@ -498,6 +587,7 @@ export default function AdminDashboard() {
                 <div className="pt-6 border-t border-slate-800 space-y-2">
                     <Link
                         to="/"
+                        onClick={closeSidebar}
                         className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 text-xs font-medium transition-colors"
                     >
                         <Globe size={16} />
@@ -515,11 +605,21 @@ export default function AdminDashboard() {
             </aside>
 
             {/* Main Content Area */}
-            <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
+            <div className="flex-1 flex flex-col min-w-0 w-full overflow-y-auto">
                 <header className="bg-slate-900/60 border-b border-slate-800 p-4 sm:px-8 flex items-center justify-between backdrop-blur-md sticky top-0 z-20">
-                    <h1 className="text-lg font-bold text-white capitalize">{activeTab}</h1>
+                    <div className="flex items-center gap-3">
+                        {/* Hamburger — mobile only */}
+                        <button
+                            onClick={() => setSidebarOpen(true)}
+                            className="md:hidden p-2 -ml-2 rounded-xl text-slate-300 hover:text-white hover:bg-slate-800 transition-colors"
+                            aria-label="Open menu"
+                        >
+                            <Menu size={20} />
+                        </button>
+                        <h1 className="text-base sm:text-lg font-bold text-white capitalize">{activeTab}</h1>
+                    </div>
 
-                    <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-2 sm:gap-4">
                         <div className="relative">
                             <button className="p-2 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition-colors relative">
                                 <Bell size={18} />
@@ -529,8 +629,8 @@ export default function AdminDashboard() {
                             </button>
                         </div>
 
-                        <div className="flex items-center gap-3 border-l border-slate-800 pl-4">
-                            <div className="w-9 h-9 rounded-full bg-emerald-600/20 border border-emerald-500/30 text-emerald-400 flex items-center justify-center font-bold text-sm uppercase">
+                        <div className="flex items-center gap-3 border-l border-slate-800 pl-2 sm:pl-4">
+                            <div className="w-9 h-9 rounded-full bg-emerald-600/20 border border-emerald-500/30 text-emerald-400 flex items-center justify-center font-bold text-sm uppercase shrink-0">
                                 {adminUser?.email?.charAt(0) || 'A'}
                             </div>
                             <div className="hidden sm:block text-left">
@@ -543,74 +643,74 @@ export default function AdminDashboard() {
                     </div>
                 </header>
 
-                <main className="p-4 sm:p-8 space-y-8 max-w-7xl w-full mx-auto">
+                <main className="p-4 sm:p-6 lg:p-8 space-y-6 sm:space-y-8 max-w-7xl w-full mx-auto">
                     {/* Stats Grid */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-5">
                         <Link
                             to="/admin/members"
-                            className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 backdrop-blur-sm hover:border-emerald-500/50 transition-colors group"
+                            className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 sm:p-5 backdrop-blur-sm hover:border-emerald-500/50 transition-colors group"
                         >
                             <div className="flex items-center justify-between">
-                                <span className="text-xs font-medium text-slate-400">Total Members</span>
-                                <div className="p-2.5 rounded-xl bg-emerald-500/10 text-emerald-400 group-hover:scale-110 transition-transform">
-                                    <Users size={20} />
+                                <span className="text-[11px] sm:text-xs font-medium text-slate-400">Total Members</span>
+                                <div className="p-2 sm:p-2.5 rounded-xl bg-emerald-500/10 text-emerald-400 group-hover:scale-110 transition-transform">
+                                    <Users size={18} className="sm:w-5 sm:h-5" />
                                 </div>
                             </div>
-                            <div className="text-2xl font-bold text-white mt-3">{stats.totalMembers}</div>
-                            <span className="text-[11px] text-emerald-400 mt-1 inline-block">
+                            <div className="text-xl sm:text-2xl font-bold text-white mt-3">{stats.totalMembers}</div>
+                            <span className="text-[10px] sm:text-[11px] text-emerald-400 mt-1 inline-block">
                                 Manage Members →
                             </span>
                         </Link>
 
-                        <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 backdrop-blur-sm">
+                        <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 sm:p-5 backdrop-blur-sm">
                             <div className="flex items-center justify-between">
-                                <span className="text-xs font-medium text-slate-400">Pending Approvals</span>
-                                <div className="p-2.5 rounded-xl bg-amber-500/10 text-amber-400">
-                                    <Clock size={20} />
+                                <span className="text-[11px] sm:text-xs font-medium text-slate-400">Pending Approvals</span>
+                                <div className="p-2 sm:p-2.5 rounded-xl bg-amber-500/10 text-amber-400">
+                                    <Clock size={18} className="sm:w-5 sm:h-5" />
                                 </div>
                             </div>
-                            <div className="text-2xl font-bold text-white mt-3">{stats.pendingCount}</div>
-                            <span className="text-[11px] text-amber-400 mt-1 inline-block">Action Needed</span>
+                            <div className="text-xl sm:text-2xl font-bold text-white mt-3">{stats.pendingCount}</div>
+                            <span className="text-[10px] sm:text-[11px] text-amber-400 mt-1 inline-block">Action Needed</span>
                         </div>
 
                         <Link
                             to="/admin/images"
-                            className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 backdrop-blur-sm hover:border-teal-500/50 transition-colors group"
+                            className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 sm:p-5 backdrop-blur-sm hover:border-teal-500/50 transition-colors group"
                         >
                             <div className="flex items-center justify-between">
-                                <span className="text-xs font-medium text-slate-400">Gallery Images</span>
-                                <div className="p-2.5 rounded-xl bg-teal-500/10 text-teal-400 group-hover:scale-110 transition-transform">
-                                    <ImageIcon size={20} />
+                                <span className="text-[11px] sm:text-xs font-medium text-slate-400">Gallery Images</span>
+                                <div className="p-2 sm:p-2.5 rounded-xl bg-teal-500/10 text-teal-400 group-hover:scale-110 transition-transform">
+                                    <ImageIcon size={18} className="sm:w-5 sm:h-5" />
                                 </div>
                             </div>
-                            <div className="text-2xl font-bold text-white mt-3">{stats.totalGallery}</div>
-                            <span className="text-[11px] text-teal-400 mt-1 inline-block">
+                            <div className="text-xl sm:text-2xl font-bold text-white mt-3">{stats.totalGallery}</div>
+                            <span className="text-[10px] sm:text-[11px] text-teal-400 mt-1 inline-block">
                                 Manage Images →
                             </span>
                         </Link>
 
                         <Link
                             to="/admin/content"
-                            className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 backdrop-blur-sm hover:border-cyan-500/50 transition-colors group"
+                            className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 sm:p-5 backdrop-blur-sm hover:border-cyan-500/50 transition-colors group"
                         >
                             <div className="flex items-center justify-between">
-                                <span className="text-xs font-medium text-slate-400">Published News</span>
-                                <div className="p-2.5 rounded-xl bg-cyan-500/10 text-cyan-400 group-hover:scale-110 transition-transform">
-                                    <FileText size={20} />
+                                <span className="text-[11px] sm:text-xs font-medium text-slate-400">Published News</span>
+                                <div className="p-2 sm:p-2.5 rounded-xl bg-cyan-500/10 text-cyan-400 group-hover:scale-110 transition-transform">
+                                    <FileText size={18} className="sm:w-5 sm:h-5" />
                                 </div>
                             </div>
-                            <div className="text-2xl font-bold text-white mt-3">{stats.totalPosts}</div>
-                            <span className="text-[11px] text-cyan-400 mt-1 inline-block">
+                            <div className="text-xl sm:text-2xl font-bold text-white mt-3">{stats.totalPosts}</div>
+                            <span className="text-[10px] sm:text-[11px] text-cyan-400 mt-1 inline-block">
                                 Manage Content →
                             </span>
                         </Link>
                     </div>
 
                     {/* Quick Action Buttons */}
-                    <div className="flex flex-wrap items-center gap-4">
+                    <div className="flex flex-wrap items-center gap-2 sm:gap-4">
                         <button
                             onClick={() => setShowGalleryModal(true)}
-                            className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold flex items-center gap-2 shadow-lg shadow-emerald-900/40 transition-all"
+                            className="px-4 sm:px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold flex items-center gap-2 shadow-lg shadow-emerald-900/40 transition-all"
                         >
                             <Upload size={16} />
                             <span>Upload Gallery Image</span>
@@ -618,7 +718,7 @@ export default function AdminDashboard() {
 
                         <button
                             onClick={() => setShowBlogModal(true)}
-                            className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-200 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all"
+                            className="px-4 sm:px-5 py-2.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-200 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all"
                         >
                             <Plus size={16} />
                             <span>Publish News Article</span>
@@ -627,7 +727,7 @@ export default function AdminDashboard() {
                         {/* Events Manager Quick Link */}
                         <Link
                             to="/admin/events"
-                            className="px-5 py-2.5 bg-emerald-600/20 hover:bg-emerald-600 hover:text-white border border-emerald-500/30 text-emerald-400 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all"
+                            className="px-4 sm:px-5 py-2.5 bg-emerald-600/20 hover:bg-emerald-600 hover:text-white border border-emerald-500/30 text-emerald-400 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all"
                         >
                             <Calendar size={16} />
                             <span>Manage Events Schedule</span>
@@ -635,7 +735,7 @@ export default function AdminDashboard() {
 
                         <button
                             onClick={() => setShowPresidentModal(true)}
-                            className="px-5 py-2.5 bg-teal-600/20 hover:bg-teal-600 hover:text-white border border-teal-500/30 text-teal-400 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all"
+                            className="px-4 sm:px-5 py-2.5 bg-teal-600/20 hover:bg-teal-600 hover:text-white border border-teal-500/30 text-teal-400 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all"
                         >
                             <Quote size={16} />
                             <span>Edit Executive Addresses</span>
@@ -643,10 +743,10 @@ export default function AdminDashboard() {
                     </div>
 
                     {/* Pending Approvals Table */}
-                    <div className="bg-slate-900/80 border border-slate-800 rounded-3xl p-6 backdrop-blur-sm space-y-6 shadow-xl">
+                    <div className="bg-slate-900/80 border border-slate-800 rounded-3xl p-4 sm:p-6 backdrop-blur-sm space-y-6 shadow-xl">
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                             <div>
-                                <h2 className="text-lg font-bold text-white">Pending Member Registrations</h2>
+                                <h2 className="text-base sm:text-lg font-bold text-white">Pending Member Registrations</h2>
                                 <p className="text-xs text-slate-400 mt-0.5">
                                     Review and verify new alumni registration requests.
                                 </p>
@@ -659,12 +759,13 @@ export default function AdminDashboard() {
                                     value={searchTerm}
                                     onChange={(e) => setSearchTerm(e.target.value)}
                                     placeholder="Search requests..."
-                                    className="bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-4 py-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500"
+                                    className="w-full sm:w-auto bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-4 py-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500"
                                 />
                             </div>
                         </div>
 
-                        <div className="overflow-x-auto">
+                        {/* Desktop/tablet table view */}
+                        <div className="overflow-x-auto hidden sm:block">
                             <table className="w-full text-left text-xs">
                                 <thead>
                                     <tr className="border-b border-slate-800 text-slate-400 uppercase tracking-wider">
@@ -732,6 +833,71 @@ export default function AdminDashboard() {
                                 </tbody>
                             </table>
                         </div>
+
+                        {/* Mobile card-list view (replaces the table under sm breakpoint) */}
+                        <div className="sm:hidden space-y-3">
+                            {filteredUsers.length > 0 ? (
+                                filteredUsers.map((user) => (
+                                    <div key={user.id} className="bg-slate-950 border border-slate-800 rounded-2xl p-4 space-y-3">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-11 h-11 rounded-full bg-slate-900 border border-slate-700 overflow-hidden flex items-center justify-center shadow-md shrink-0">
+                                                {user.profile_image_url ? (
+                                                    <img
+                                                        src={user.profile_image_url}
+                                                        alt={user.full_name}
+                                                        className="w-full h-full object-cover"
+                                                    />
+                                                ) : (
+                                                    <span className="text-emerald-400 font-bold text-sm uppercase">
+                                                        {user.full_name?.charAt(0) || 'U'}
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <div className="min-w-0">
+                                                <div className="font-semibold text-white text-xs truncate">{user.full_name}</div>
+                                                <div className="text-slate-400 text-[11px] truncate">{user.email}</div>
+                                            </div>
+                                        </div>
+
+                                        <div className="grid grid-cols-3 gap-2 text-[11px] text-slate-300 border-t border-slate-800 pt-3">
+                                            <div>
+                                                <p className="text-slate-500 text-[10px] uppercase">Batch</p>
+                                                <p className="text-emerald-400 font-medium">{user.batch_year}</p>
+                                            </div>
+                                            <div className="col-span-2">
+                                                <p className="text-slate-500 text-[10px] uppercase">Occupation</p>
+                                                <p className="truncate">{user.occupation}</p>
+                                            </div>
+                                        </div>
+                                        <p className="text-[11px] text-slate-300">
+                                            <span className="text-slate-500 text-[10px] uppercase block">Country</span>
+                                            {user.country}
+                                        </p>
+
+                                        <div className="flex items-center gap-2 pt-1">
+                                            <button
+                                                onClick={() => handleApprove(user.id)}
+                                                className="flex-1 px-3 py-2 rounded-lg bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-600 hover:text-white text-xs font-medium transition-all flex items-center justify-center gap-1 shadow-sm"
+                                            >
+                                                <Check size={14} />
+                                                <span>Approve</span>
+                                            </button>
+                                            <button
+                                                onClick={() => handleReject(user.id)}
+                                                className="flex-1 px-3 py-2 rounded-lg bg-rose-600/20 text-rose-400 border border-rose-500/30 hover:bg-rose-600 hover:text-white text-xs font-medium transition-all flex items-center justify-center gap-1 shadow-sm"
+                                            >
+                                                <X size={14} />
+                                                <span>Reject</span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))
+                            ) : (
+                                <p className="py-8 text-center text-slate-500 text-xs">
+                                    No pending registration requests found!
+                                </p>
+                            )}
+                        </div>
                     </div>
                 </main>
             </div>
@@ -739,7 +905,7 @@ export default function AdminDashboard() {
             {/* 1. Gallery Upload Modal */}
             {showGalleryModal && (
                 <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-                    <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-md w-full space-y-4 shadow-2xl">
+                    <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-6 max-w-md w-full space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
                         <div className="flex justify-between items-center border-b border-slate-800 pb-3">
                             <h3 className="text-base font-bold text-white">Upload Image to Gallery</h3>
                             <button
@@ -885,7 +1051,7 @@ export default function AdminDashboard() {
             {/* 2. Blog/News Modal */}
             {showBlogModal && (
                 <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-                    <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-lg w-full space-y-4 shadow-2xl">
+                    <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-6 max-w-lg w-full space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
                         <div className="flex justify-between items-center border-b border-slate-800 pb-3">
                             <h3 className="text-base font-bold text-white">Publish News Article</h3>
                             <button
@@ -1002,7 +1168,7 @@ export default function AdminDashboard() {
             {/* 3. MULTI-LEADER ADDRESSES MODAL */}
             {showLeadersModal && (
                 <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-                    <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-md w-full space-y-4 shadow-2xl">
+                    <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-6 max-w-md w-full space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
                         <div className="flex justify-between items-center border-b border-slate-800 pb-3">
                             <h3 className="text-base font-bold text-white">Edit Executive Addresses</h3>
                             <button
