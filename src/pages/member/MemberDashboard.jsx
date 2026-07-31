@@ -24,7 +24,11 @@ import {
     Star,
     BadgeCheck,
     Download,
-    Award
+    Award,
+    Bell,
+    Newspaper,
+    Send,
+    PlusCircle,
 } from 'lucide-react';
 import Navbar from '../../components/layout/Navbar';
 import Footer from '../../components/layout/Footer';
@@ -58,6 +62,19 @@ export default function MemberDashboard() {
 
     // Live Stream State
     const [liveStreams, setLiveStreams] = useState([]);
+
+    // Notifications & Announcements State
+    const [notifications, setNotifications] = useState([]);
+
+    // Article Submission State
+    const [myArticles, setMyArticles] = useState([]);
+    const [showArticleModal, setShowArticleModal] = useState(false);
+    const [submittingArticle, setSubmittingArticle] = useState(false);
+    const [articleData, setArticleData] = useState({
+        title: '',
+        content: '',
+        featured_image_url: '',
+    });
 
     // Ref to the physical card element so we can capture it as an image
     const cardRef = useRef(null);
@@ -134,6 +151,25 @@ export default function MemberDashboard() {
             // 5. Fetch Live Video Streams
             const { data: streamsData } = await supabase.from('live_streams').select('*');
             setLiveStreams(streamsData || []);
+
+            // 6. Fetch System Notifications / Announcements
+            const { data: notifData, error: notifErr } = await supabase
+                .from('notifications')
+                .select('*')
+                .order('created_at', { ascending: false });
+
+            if (!notifErr) setNotifications(notifData || []);
+
+            // 7. Fetch this member's own submitted articles
+            if (dbUser) {
+                const { data: articlesData, error: articlesErr } = await supabase
+                    .from('blog_posts')
+                    .select('*')
+                    .eq('user_id', dbUser.id)
+                    .order('created_at', { ascending: false });
+
+                if (!articlesErr) setMyArticles(articlesData || []);
+            }
 
         } catch (err) {
             console.error('Error loading member dashboard:', err);
@@ -273,6 +309,41 @@ export default function MemberDashboard() {
         }
     };
 
+    // Submit a New Article for Admin Review
+    const handleSubmitArticle = async (e) => {
+        e.preventDefault();
+        setSubmittingArticle(true);
+        try {
+            const generatedSlug = `${articleData.title
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, '-')
+                .replace(/(^-|-$)+/g, '')}-${Date.now()}`;
+
+            const { error } = await supabase.from('blog_posts').insert([
+                {
+                    title: articleData.title,
+                    slug: generatedSlug,
+                    content: articleData.content,
+                    featured_image_url: articleData.featured_image_url || null,
+                    author_name: currentUser.full_name,
+                    user_id: currentUser.id,
+                    status: 'pending',
+                },
+            ]);
+
+            if (error) throw error;
+
+            alert('Article submitted successfully! It will appear once approved by an admin.');
+            setShowArticleModal(false);
+            setArticleData({ title: '', content: '', featured_image_url: '' });
+            fetchMemberData();
+        } catch (err) {
+            alert('Failed to submit article: ' + err.message);
+        } finally {
+            setSubmittingArticle(false);
+        }
+    };
+
     // Download the Membership Card as a high-resolution PNG image
     const handleDownloadCard = async () => {
         if (!cardRef.current) return;
@@ -381,6 +452,8 @@ export default function MemberDashboard() {
                             { id: 'polls', label: 'Voting & Polls', icon: Vote },
                             { id: 'events', label: 'Events Schedule', icon: Calendar },
                             { id: 'live', label: 'Live Stream', icon: Video },
+                            { id: 'articles', label: 'My Articles', icon: Newspaper },
+                            { id: 'notifications', label: 'Notifications', icon: Bell },
                         ].map((tab) => {
                             const Icon = tab.icon;
                             return (
@@ -793,7 +866,229 @@ export default function MemberDashboard() {
                     </div>
                 )}
 
+                {/* TAB 6: MY ARTICLES */}
+                {activeTab === 'articles' && (
+                    <div className="space-y-6">
+                        <div className="border-b border-slate-800 pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                            <div>
+                                <h2 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
+                                    <Newspaper size={20} className="text-cyan-400 shrink-0" />
+                                    My Articles
+                                </h2>
+                                <p className="text-xs text-slate-400 mt-1">
+                                    Submit news or stories for the association blog. Admin review is required before publishing.
+                                </p>
+                            </div>
+                            <button
+                                onClick={() => setShowArticleModal(true)}
+                                className="shrink-0 px-4 sm:px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/40 transition-all"
+                            >
+                                <PlusCircle size={16} />
+                                <span>Submit New Article</span>
+                            </button>
+                        </div>
+
+                        {myArticles.length > 0 ? (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
+                                {myArticles.map((article) => {
+                                    const isPublished = article.status === 'published';
+                                    const isRejected = article.status === 'rejected';
+                                    const formattedDate = article.created_at
+                                        ? new Date(article.created_at).toLocaleDateString(undefined, {
+                                            year: 'numeric',
+                                            month: 'short',
+                                            day: 'numeric',
+                                        })
+                                        : '';
+
+                                    return (
+                                        <div
+                                            key={article.id}
+                                            className="bg-slate-900/80 border border-slate-800 rounded-2xl sm:rounded-3xl p-5 sm:p-6 space-y-3 backdrop-blur-xl"
+                                        >
+                                            {article.featured_image_url && (
+                                                <div className="w-full h-32 rounded-xl overflow-hidden bg-slate-950 border border-slate-800">
+                                                    <img
+                                                        src={article.featured_image_url}
+                                                        alt={article.title}
+                                                        className="w-full h-full object-cover"
+                                                    />
+                                                </div>
+                                            )}
+                                            <div className="flex items-start justify-between gap-2">
+                                                <h3 className="text-sm sm:text-base font-bold text-white break-words">
+                                                    {article.title}
+                                                </h3>
+                                                <span
+                                                    className={`shrink-0 text-[10px] font-semibold px-2.5 py-0.5 rounded-full border capitalize whitespace-nowrap ${isPublished
+                                                            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                                                            : isRejected
+                                                                ? 'bg-rose-500/10 border-rose-500/30 text-rose-400'
+                                                                : 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+                                                        }`}
+                                                >
+                                                    {article.status}
+                                                </span>
+                                            </div>
+                                            <p className="text-xs text-slate-400 line-clamp-3 break-words">
+                                                {article.content}
+                                            </p>
+                                            <p className="text-[10px] text-slate-500">Submitted {formattedDate}</p>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        ) : (
+                            <div className="text-center py-12 space-y-2">
+                                <Newspaper size={28} className="text-slate-700 mx-auto" />
+                                <p className="text-xs text-slate-500">You haven't submitted any articles yet.</p>
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* TAB 7: NOTIFICATIONS & ANNOUNCEMENTS */}
+                {activeTab === 'notifications' && (
+                    <div className="space-y-6">
+                        <div className="border-b border-slate-800 pb-4">
+                            <h2 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
+                                <Bell size={20} className="text-amber-400 shrink-0" />
+                                Notifications & Announcements
+                            </h2>
+                            <p className="text-xs text-slate-400 mt-1">
+                                Official updates and announcements from the association.
+                            </p>
+                        </div>
+
+                        {notifications.length > 0 ? (
+                            <div className="space-y-4 max-w-3xl mx-auto">
+                                {notifications.map((notif) => {
+                                    const formattedDate = notif.created_at
+                                        ? new Date(notif.created_at).toLocaleDateString(undefined, {
+                                            year: 'numeric',
+                                            month: 'short',
+                                            day: 'numeric',
+                                            hour: '2-digit',
+                                            minute: '2-digit',
+                                        })
+                                        : '';
+
+                                    return (
+                                        <div
+                                            key={notif.id}
+                                            className="bg-slate-900/80 border border-slate-800 rounded-2xl sm:rounded-3xl p-5 sm:p-6 backdrop-blur-xl space-y-2"
+                                        >
+                                            <div className="flex items-start justify-between gap-3">
+                                                <h3 className="text-sm sm:text-base font-bold text-white break-words flex items-center gap-2">
+                                                    <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" />
+                                                    {notif.title}
+                                                </h3>
+                                                <span className="text-[10px] text-slate-500 whitespace-nowrap shrink-0 mt-0.5">
+                                                    {formattedDate}
+                                                </span>
+                                            </div>
+                                            <p className="text-xs text-slate-300 break-words leading-relaxed pl-4">
+                                                {notif.message}
+                                            </p>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        ) : (
+                            <div className="text-center py-12 space-y-2">
+                                <Bell size={28} className="text-slate-700 mx-auto" />
+                                <p className="text-xs text-slate-500">No notifications or announcements yet.</p>
+                            </div>
+                        )}
+                    </div>
+                )}
+
             </main>
+
+            {/* Submit New Article Modal */}
+            {showArticleModal && (
+                <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                    <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-6 max-w-lg w-full space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
+                        <div className="flex justify-between items-center border-b border-slate-800 pb-3">
+                            <h3 className="text-base font-bold text-white flex items-center gap-2">
+                                <Newspaper size={18} className="text-cyan-400" />
+                                Submit New Article
+                            </h3>
+                            <button
+                                onClick={() => setShowArticleModal(false)}
+                                className="text-slate-400 hover:text-white"
+                            >
+                                <XCircle size={20} />
+                            </button>
+                        </div>
+
+                        <p className="text-[11px] text-slate-400 -mt-1">
+                            Your article will be reviewed by an admin before it appears on the public blog.
+                        </p>
+
+                        <form onSubmit={handleSubmitArticle} className="space-y-4">
+                            <div>
+                                <label className="block text-xs font-medium text-slate-300 mb-1">
+                                    Article Title *
+                                </label>
+                                <input
+                                    type="text"
+                                    required
+                                    value={articleData.title}
+                                    onChange={(e) => setArticleData({ ...articleData, title: e.target.value })}
+                                    placeholder="e.g. My Reflections on This Year's Reunion"
+                                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-medium text-slate-300 mb-1">
+                                    Featured Image URL (Optional)
+                                </label>
+                                <input
+                                    type="url"
+                                    value={articleData.featured_image_url}
+                                    onChange={(e) =>
+                                        setArticleData({ ...articleData, featured_image_url: e.target.value })
+                                    }
+                                    placeholder="https://images.unsplash.com/..."
+                                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-medium text-slate-300 mb-1">Content *</label>
+                                <textarea
+                                    rows="6"
+                                    required
+                                    value={articleData.content}
+                                    onChange={(e) => setArticleData({ ...articleData, content: e.target.value })}
+                                    placeholder="Write your article content here..."
+                                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-emerald-500"
+                                />
+                            </div>
+
+                            <button
+                                type="submit"
+                                disabled={submittingArticle}
+                                className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold shadow-lg shadow-emerald-900/40 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                            >
+                                {submittingArticle ? (
+                                    <>
+                                        <Loader2 size={16} className="animate-spin" />
+                                        <span>Submitting...</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <Send size={14} />
+                                        <span>Submit for Review</span>
+                                    </>
+                                )}
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            )}
 
             <Footer />
         </div>

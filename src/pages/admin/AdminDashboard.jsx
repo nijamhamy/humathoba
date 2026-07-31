@@ -24,6 +24,8 @@ import {
     Settings,
     Calendar,
     Menu,
+    Megaphone,
+    Newspaper,
 } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 
@@ -41,6 +43,7 @@ export default function AdminDashboard() {
 
     // Dynamic Database States
     const [pendingUsers, setPendingUsers] = useState([]);
+    const [pendingArticles, setPendingArticles] = useState([]);
     const [stats, setStats] = useState({
         totalMembers: 0,
         pendingCount: 0,
@@ -53,6 +56,7 @@ export default function AdminDashboard() {
     const [showGalleryModal, setShowGalleryModal] = useState(false);
     const [showBlogModal, setShowBlogModal] = useState(false);
     const [showLeadersModal, setShowPresidentModal] = useState(false);
+    const [showNotifyModal, setShowNotifyModal] = useState(false);
 
     // Selected Leader Tab in Modal ('president' | 'secretary' | 'treasurer')
     const [selectedLeaderRole, setSelectedLeaderRole] = useState('president');
@@ -106,6 +110,12 @@ export default function AdminDashboard() {
     const [leaderFile, setLeaderFile] = useState(null);
     const [leaderImagePreview, setLeaderImagePreview] = useState(null);
 
+    // Broadcast Notification Form State
+    const [notifyData, setNotifyData] = useState({
+        title: '',
+        message: '',
+    });
+
     useEffect(() => {
         fetchAdminAndData();
     }, []);
@@ -142,6 +152,15 @@ export default function AdminDashboard() {
                 .order('created_at', { ascending: false });
 
             if (!pendingErr) setPendingUsers(pendingData || []);
+
+            // 2b. Fetch pending article submissions from members
+            const { data: pendingArticlesData, error: articlesErr } = await supabase
+                .from('blog_posts')
+                .select('*')
+                .eq('status', 'pending')
+                .order('created_at', { ascending: false });
+
+            if (!articlesErr) setPendingArticles(pendingArticlesData || []);
 
             // 3. Fetch exact statistics
             const { count: memberCount } = await supabase
@@ -364,6 +383,66 @@ export default function AdminDashboard() {
         }
     };
 
+    // Action: Broadcast a New Notification / Announcement to All Members
+    const handleBroadcastNotification = async (e) => {
+        e.preventDefault();
+        setUploading(true);
+        try {
+            const { error } = await supabase.from('notifications').insert([
+                {
+                    title: notifyData.title,
+                    message: notifyData.message,
+                    target_role: 'all',
+                },
+            ]);
+
+            if (error) throw error;
+
+            alert('Notification broadcasted to all members successfully!');
+            setShowNotifyModal(false);
+            setNotifyData({ title: '', message: '' });
+        } catch (err) {
+            alert('Error broadcasting notification: ' + err.message);
+        } finally {
+            setUploading(false);
+        }
+    };
+
+    // Action: Approve & Publish a Member-Submitted Article
+    const handleApproveArticle = async (id) => {
+        try {
+            const { error } = await supabase
+                .from('blog_posts')
+                .update({ status: 'published', published_at: new Date() })
+                .eq('id', id);
+
+            if (error) throw error;
+
+            setPendingArticles(pendingArticles.filter((a) => a.id !== id));
+            setStats((prev) => ({ ...prev, totalPosts: prev.totalPosts + 1 }));
+            alert('Article approved and published successfully!');
+        } catch (err) {
+            alert('Failed to approve article: ' + err.message);
+        }
+    };
+
+    // Action: Reject a Member-Submitted Article
+    const handleRejectArticle = async (id) => {
+        try {
+            const { error } = await supabase
+                .from('blog_posts')
+                .update({ status: 'rejected' })
+                .eq('id', id);
+
+            if (error) throw error;
+
+            setPendingArticles(pendingArticles.filter((a) => a.id !== id));
+            alert('Article submission rejected.');
+        } catch (err) {
+            alert('Failed to reject article: ' + err.message);
+        }
+    };
+
     // Action: Approve User
     const handleApprove = async (id) => {
         try {
@@ -467,9 +546,8 @@ export default function AdminDashboard() {
 
             {/* Sidebar — fixed/slide-in on mobile, static on desktop */}
             <aside
-                className={`fixed md:static inset-y-0 left-0 z-50 w-72 sm:w-64 bg-slate-900 border-r border-slate-800 flex flex-col justify-between p-5 transform transition-transform duration-300 ease-in-out md:translate-x-0 ${
-                    sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-                }`}
+                className={`fixed md:static inset-y-0 left-0 z-50 w-72 sm:w-64 bg-slate-900 border-r border-slate-800 flex flex-col justify-between p-5 transform transition-transform duration-300 ease-in-out md:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+                    }`}
             >
                 <div className="space-y-8">
                     <div className="flex items-center justify-between">
@@ -740,6 +818,15 @@ export default function AdminDashboard() {
                             <Quote size={16} />
                             <span>Edit Executive Addresses</span>
                         </button>
+
+                        {/* Broadcast Notification Quick Action */}
+                        <button
+                            onClick={() => setShowNotifyModal(true)}
+                            className="px-4 sm:px-5 py-2.5 bg-amber-600/20 hover:bg-amber-600 hover:text-white border border-amber-500/30 text-amber-400 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all"
+                        >
+                            <Megaphone size={16} />
+                            <span>Broadcast Notification</span>
+                        </button>
                     </div>
 
                     {/* Pending Approvals Table */}
@@ -898,6 +985,74 @@ export default function AdminDashboard() {
                                 </p>
                             )}
                         </div>
+                    </div>
+
+                    {/* Pending Article Submissions */}
+                    <div className="bg-slate-900/80 border border-slate-800 rounded-3xl p-4 sm:p-6 backdrop-blur-sm space-y-6 shadow-xl">
+                        <div>
+                            <h2 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
+                                <Newspaper size={18} className="text-cyan-400 shrink-0" />
+                                Pending Article Submissions
+                            </h2>
+                            <p className="text-xs text-slate-400 mt-0.5">
+                                Review articles submitted by members before they go live on the public blog.
+                            </p>
+                        </div>
+
+                        {pendingArticles.length > 0 ? (
+                            <div className="space-y-3">
+                                {pendingArticles.map((article) => (
+                                    <div
+                                        key={article.id}
+                                        className="bg-slate-950 border border-slate-800 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-4 justify-between"
+                                    >
+                                        <div className="flex items-start gap-3 min-w-0">
+                                            {article.featured_image_url && (
+                                                <div className="w-14 h-14 rounded-xl overflow-hidden bg-slate-900 border border-slate-800 shrink-0">
+                                                    <img
+                                                        src={article.featured_image_url}
+                                                        alt={article.title}
+                                                        className="w-full h-full object-cover"
+                                                    />
+                                                </div>
+                                            )}
+                                            <div className="min-w-0">
+                                                <h3 className="text-xs sm:text-sm font-semibold text-white truncate">
+                                                    {article.title}
+                                                </h3>
+                                                <p className="text-[11px] text-slate-400 mt-0.5">
+                                                    By {article.author_name || 'Member'}
+                                                </p>
+                                                <p className="text-[11px] text-slate-500 mt-1 line-clamp-2 break-words">
+                                                    {article.content}
+                                                </p>
+                                            </div>
+                                        </div>
+
+                                        <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                                            <button
+                                                onClick={() => handleApproveArticle(article.id)}
+                                                className="px-3 py-1.5 rounded-lg bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-600 hover:text-white text-xs font-medium transition-all flex items-center gap-1 shadow-sm"
+                                            >
+                                                <Check size={14} />
+                                                <span>Approve & Publish</span>
+                                            </button>
+                                            <button
+                                                onClick={() => handleRejectArticle(article.id)}
+                                                className="px-3 py-1.5 rounded-lg bg-rose-600/20 text-rose-400 border border-rose-500/30 hover:bg-rose-600 hover:text-white text-xs font-medium transition-all flex items-center gap-1 shadow-sm"
+                                            >
+                                                <X size={14} />
+                                                <span>Reject</span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <p className="py-8 text-center text-slate-500 text-xs">
+                                No pending article submissions right now.
+                            </p>
+                        )}
                     </div>
                 </main>
             </div>
@@ -1298,6 +1453,78 @@ export default function AdminDashboard() {
                                     </>
                                 ) : (
                                     <span>Save {selectedLeaderRole.toUpperCase()}'s Address</span>
+                                )}
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* 4. Broadcast Notification Modal */}
+            {showNotifyModal && (
+                <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                    <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-6 max-w-md w-full space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
+                        <div className="flex justify-between items-center border-b border-slate-800 pb-3">
+                            <h3 className="text-base font-bold text-white flex items-center gap-2">
+                                <Megaphone size={18} className="text-amber-400" />
+                                Broadcast Notification
+                            </h3>
+                            <button
+                                onClick={() => setShowNotifyModal(false)}
+                                className="text-slate-400 hover:text-white"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        <p className="text-[11px] text-slate-400 -mt-1">
+                            This message will be visible to all members on their dashboard.
+                        </p>
+
+                        <form onSubmit={handleBroadcastNotification} className="space-y-4">
+                            <div>
+                                <label className="block text-xs font-medium text-slate-300 mb-1">
+                                    Notification Title *
+                                </label>
+                                <input
+                                    type="text"
+                                    required
+                                    value={notifyData.title}
+                                    onChange={(e) => setNotifyData({ ...notifyData, title: e.target.value })}
+                                    placeholder="e.g. Annual General Meeting Reminder"
+                                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-medium text-slate-300 mb-1">
+                                    Message *
+                                </label>
+                                <textarea
+                                    rows="4"
+                                    required
+                                    value={notifyData.message}
+                                    onChange={(e) => setNotifyData({ ...notifyData, message: e.target.value })}
+                                    placeholder="Write the announcement content here..."
+                                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-amber-500"
+                                />
+                            </div>
+
+                            <button
+                                type="submit"
+                                disabled={uploading}
+                                className="w-full py-2.5 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-semibold shadow-lg shadow-amber-900/40 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                            >
+                                {uploading ? (
+                                    <>
+                                        <Loader2 size={16} className="animate-spin" />
+                                        <span>Broadcasting...</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <Megaphone size={14} />
+                                        <span>Send to All Members</span>
+                                    </>
                                 )}
                             </button>
                         </form>
