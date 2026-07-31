@@ -426,7 +426,7 @@ function ExecutiveCarousel({ leaderMessages }) {
                                             <ShieldCheck size={16} className="text-emerald-400 shrink-0" aria-hidden="true" />
                                         </h4>
                                         <p className="text-xs text-emerald-400 font-medium mt-0.5">
-                                            Al Hamiya College Old Boys Association
+                                            Al Hamiya Arabic College Old Boys Association
                                         </p>
                                     </div>
                                 </div>

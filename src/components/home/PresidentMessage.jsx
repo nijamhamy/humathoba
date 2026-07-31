@@ -36,7 +36,7 @@ export default function PresidentMessage({ imageUrl, presidentName, title, messa
                                     <ShieldCheck size={16} className="text-emerald-400" />
                                 </h4>
                                 <p className="text-xs text-emerald-400 font-medium mt-0.5">
-                                    Al Hamiya College Old Boys Association
+                                    Al Hamiya Arabic College Old Boys Association
                                 </p>
                             </div>
                         </div>
