@@ -12,15 +12,25 @@ import {
     ChevronLeft,
     ChevronRight,
     ShieldCheck,
-    User
+    User,
+    X,
+    Maximize2
 } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 
 /* =========================================================
-   Utility hooks
+   Utility hooks / helpers
    ========================================================= */
 
-// Respects the user's OS-level "reduce motion" preference.
+function shuffleArray(arr) {
+    const copy = [...arr];
+    for (let i = copy.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [copy[i], copy[j]] = [copy[j], copy[i]];
+    }
+    return copy;
+}
+
 function usePrefersReducedMotion() {
     const [reduced, setReduced] = useState(false);
     useEffect(() => {
@@ -33,7 +43,6 @@ function usePrefersReducedMotion() {
     return reduced;
 }
 
-// Fires once an element scrolls into view — used for gentle section reveals.
 function useInView(threshold = 0.15) {
     const ref = useRef(null);
     const [inView, setInView] = useState(false);
@@ -55,7 +64,6 @@ function useInView(threshold = 0.15) {
     return [ref, inView];
 }
 
-// Animates a number counting up to its target once visible.
 function useCountUp(target, inView, duration = 1200) {
     const [value, setValue] = useState(0);
     const reducedMotion = usePrefersReducedMotion();
@@ -71,7 +79,7 @@ function useCountUp(target, inView, duration = 1200) {
         const step = (timestamp) => {
             if (start === null) start = timestamp;
             const progress = Math.min((timestamp - start) / duration, 1);
-            const eased = 1 - Math.pow(1 - progress, 3); // ease-out-cubic
+            const eased = 1 - Math.pow(1 - progress, 3);
             setValue(Math.round(eased * target));
             if (progress < 1) frameId = requestAnimationFrame(step);
         };
@@ -82,44 +90,24 @@ function useCountUp(target, inView, duration = 1200) {
     return value;
 }
 
-// Enables smooth mouse-drag on horizontal scroll rails, plus a gentle
-// auto-scroll loop that pauses on hover, touch, or reduced-motion preference.
-function useDraggableScroll(itemsCount, autoScrollSpeed = 0.5) {
+// Draggable + Arrow scroll helper for rails
+function useDraggableScroll() {
     const ref = useRef(null);
-    const [isHovered, setIsHovered] = useState(false);
     const isMouseDown = useRef(false);
     const startX = useRef(0);
     const scrollLeft = useRef(0);
-    const reducedMotion = usePrefersReducedMotion();
-
-    useEffect(() => {
-        const slider = ref.current;
-        if (!slider || itemsCount <= 5 || reducedMotion) return;
-
-        let animationFrameId;
-        const autoScroll = () => {
-            if (!isHovered && !isMouseDown.current) {
-                slider.scrollLeft += autoScrollSpeed;
-                if (slider.scrollLeft >= slider.scrollWidth / 2) {
-                    slider.scrollLeft = 0;
-                }
-            }
-            animationFrameId = requestAnimationFrame(autoScroll);
-        };
-        animationFrameId = requestAnimationFrame(autoScroll);
-        return () => cancelAnimationFrame(animationFrameId);
-    }, [isHovered, itemsCount, autoScrollSpeed, reducedMotion]);
+    const draggedRef = useRef(false);
 
     const handleMouseDown = (e) => {
         const slider = ref.current;
         if (!slider) return;
         isMouseDown.current = true;
+        draggedRef.current = false;
         startX.current = e.pageX - slider.offsetLeft;
         scrollLeft.current = slider.scrollLeft;
     };
     const handleMouseLeave = () => {
         isMouseDown.current = false;
-        setIsHovered(false);
     };
     const handleMouseUp = () => {
         isMouseDown.current = false;
@@ -131,19 +119,28 @@ function useDraggableScroll(itemsCount, autoScrollSpeed = 0.5) {
         if (!slider) return;
         const x = e.pageX - slider.offsetLeft;
         const walk = (x - startX.current) * 1.5;
+        if (Math.abs(walk) > 6) draggedRef.current = true;
         slider.scrollLeft = scrollLeft.current - walk;
+    };
+
+    const hasDragged = () => draggedRef.current;
+
+    const scrollByAmount = (direction) => {
+        const slider = ref.current;
+        if (!slider) return;
+        const amount = Math.min(slider.clientWidth * 0.75, 400);
+        slider.scrollBy({ left: direction * amount, behavior: 'smooth' });
     };
 
     return {
         ref,
+        hasDragged,
+        scrollByAmount,
         events: {
             onMouseDown: handleMouseDown,
             onMouseLeave: handleMouseLeave,
             onMouseUp: handleMouseUp,
             onMouseMove: handleMouseMove,
-            onMouseEnter: () => setIsHovered(true),
-            onTouchStart: () => setIsHovered(true),
-            onTouchEnd: () => setIsHovered(false),
         }
     };
 }
@@ -160,13 +157,13 @@ function Eyebrow({ color, children }) {
     };
     return (
         <span className={`inline-flex items-center gap-2 text-[11px] sm:text-xs font-semibold uppercase tracking-wider px-3.5 py-1.5 rounded-full border ${colorMap[color]}`}>
-            <span className={`w-1.5 h-1.5 rounded-full bg-current`} />
+            <span className="w-1.5 h-1.5 rounded-full bg-current" />
             {children}
         </span>
     );
 }
 
-function SectionHeader({ eyebrow, eyebrowColor, title, linkTo, linkLabel }) {
+function SectionHeader({ eyebrow, eyebrowColor, title, linkTo, linkLabel, onPrev, onNext }) {
     return (
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row sm:items-end justify-between gap-4">
             <div>
@@ -175,18 +172,40 @@ function SectionHeader({ eyebrow, eyebrowColor, title, linkTo, linkLabel }) {
                     {title}
                 </h2>
             </div>
-            {linkTo && (
-                <Link
-                    to={linkTo}
-                    className={`text-xs sm:text-sm font-semibold inline-flex items-center gap-1.5 transition-colors group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 rounded-sm ${eyebrowColor === 'teal'
-                        ? 'text-teal-400 hover:text-teal-300 focus-visible:ring-teal-400'
-                        : 'text-cyan-400 hover:text-cyan-300 focus-visible:ring-cyan-400'
-                        }`}
-                >
-                    <span>{linkLabel}</span>
-                    <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
-                </Link>
-            )}
+            <div className="flex items-center gap-3">
+                {onPrev && onNext && (
+                    <div className="flex items-center gap-1.5">
+                        <button
+                            type="button"
+                            onClick={onPrev}
+                            className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 hover:text-white hover:border-emerald-500/50 transition-all shadow-md active:scale-95"
+                            title="Previous"
+                        >
+                            <ChevronLeft size={16} />
+                        </button>
+                        <button
+                            type="button"
+                            onClick={onNext}
+                            className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 hover:text-white hover:border-emerald-500/50 transition-all shadow-md active:scale-95"
+                            title="Next"
+                        >
+                            <ChevronRight size={16} />
+                        </button>
+                    </div>
+                )}
+                {linkTo && (
+                    <Link
+                        to={linkTo}
+                        className={`text-xs sm:text-sm font-semibold inline-flex items-center gap-1.5 transition-colors group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 rounded-sm ${eyebrowColor === 'teal'
+                            ? 'text-teal-400 hover:text-teal-300 focus-visible:ring-teal-400'
+                            : 'text-cyan-400 hover:text-cyan-300 focus-visible:ring-cyan-400'
+                            }`}
+                    >
+                        <span>{linkLabel}</span>
+                        <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
+                    </Link>
+                )}
+            </div>
         </div>
     );
 }
@@ -211,28 +230,38 @@ function StatCard({ icon: Icon, value, label, accent, inView }) {
     );
 }
 
-function GalleryCard({ item }) {
+function GalleryCard({ item, onOpen }) {
     return (
-        <div className="w-[240px] sm:w-[300px] lg:w-[320px] flex-shrink-0 bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden aspect-video relative group shadow-lg snap-start">
+        <button
+            type="button"
+            onClick={() => onOpen(item)}
+            className="w-[240px] sm:w-[300px] lg:w-[320px] flex-shrink-0 bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden aspect-video relative group shadow-lg text-left cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+        >
             <img
                 src={item.image_url}
                 alt={item.title || 'Alumni gathering photo'}
                 loading="lazy"
+                draggable={false}
                 className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 pointer-events-none"
             />
+            <div className="absolute inset-0 bg-slate-950/0 group-hover:bg-slate-950/25 transition-colors flex items-center justify-center">
+                <div className="opacity-0 group-hover:opacity-100 transition-opacity bg-emerald-600/90 p-2.5 rounded-full shadow-lg">
+                    <Maximize2 size={18} className="text-white" />
+                </div>
+            </div>
             <div className="absolute inset-0 bg-gradient-to-t from-slate-950/90 via-slate-950/10 to-transparent flex flex-col justify-end p-3 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
                 <p className="text-xs font-bold text-white truncate">{item.title || 'Untitled'}</p>
                 {item.category && (
                     <span className="text-[10px] text-emerald-400 font-medium">{item.category}</span>
                 )}
             </div>
-        </div>
+        </button>
     );
 }
 
 function NewsCard({ post }) {
     return (
-        <div className="w-[260px] sm:w-[300px] lg:w-[320px] flex-shrink-0 bg-slate-900/80 border border-slate-800 rounded-3xl overflow-hidden backdrop-blur-sm hover:border-slate-700 transition-all flex flex-col shadow-xl group snap-start">
+        <div className="w-[260px] sm:w-[300px] lg:w-[320px] flex-shrink-0 bg-slate-900/80 border border-slate-800 rounded-3xl overflow-hidden backdrop-blur-sm hover:border-slate-700 transition-all flex flex-col shadow-xl group">
             <div className="relative w-full h-40 bg-slate-950 overflow-hidden">
                 {post.featured_image_url ? (
                     <img
@@ -283,8 +312,6 @@ function NewsCard({ post }) {
     );
 }
 
-// Skeleton placeholder shown while gallery/news are loading, so the page
-// never feels like it's stalled or broken.
 function RailSkeleton({ count = 4, variant = 'gallery' }) {
     const height = variant === 'gallery' ? 'aspect-video' : 'h-64';
     return (
@@ -305,6 +332,106 @@ function EmptyState({ icon: Icon, message }) {
             <div className="flex flex-col items-center justify-center gap-2 py-12 text-slate-600 border border-dashed border-slate-800 rounded-2xl">
                 <Icon size={28} className="opacity-50" aria-hidden="true" />
                 <p className="text-xs text-slate-500">{message}</p>
+            </div>
+        </div>
+    );
+}
+
+/* =========================================================
+   Gallery lightbox
+   ========================================================= */
+
+function GalleryLightbox({ photos, index, onClose, onNext, onPrev }) {
+    const [touchStartX, setTouchStartX] = useState(0);
+    const photo = photos[index];
+
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            if (e.key === 'Escape') onClose();
+            if (e.key === 'ArrowRight') onNext();
+            if (e.key === 'ArrowLeft') onPrev();
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [onClose, onNext, onPrev]);
+
+    if (!photo) return null;
+
+    const handleTouchStart = (e) => setTouchStartX(e.touches[0].clientX);
+    const handleTouchEnd = (e) => {
+        if (touchStartX === 0) return;
+        const diffX = touchStartX - e.changedTouches[0].clientX;
+        if (diffX > 50) onNext();
+        else if (diffX < -50) onPrev();
+        setTouchStartX(0);
+    };
+
+    return (
+        <div
+            className="fixed inset-0 z-[70] bg-slate-950/95 backdrop-blur-xl flex flex-col justify-between p-4 sm:p-6"
+            onTouchStart={handleTouchStart}
+            onTouchEnd={handleTouchEnd}
+        >
+            <div className="flex items-center justify-between z-10 max-w-7xl mx-auto w-full">
+                <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-400 font-mono">
+                        {index + 1} / {photos.length}
+                    </span>
+                    {photo.category && (
+                        <span className="text-[10px] uppercase tracking-wider font-semibold text-emerald-400 bg-emerald-500/10 px-2.5 py-0.5 rounded-full border border-emerald-500/20">
+                            {photo.category}
+                        </span>
+                    )}
+                </div>
+                <button
+                    onClick={onClose}
+                    className="p-2 rounded-full bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 transition-all"
+                    title="Close (Esc)"
+                >
+                    <X size={20} />
+                </button>
+            </div>
+
+            <div className="relative flex-grow flex items-center justify-center my-4 overflow-hidden">
+                {photos.length > 1 && (
+                    <button
+                        onClick={onPrev}
+                        className="absolute left-2 sm:left-6 z-20 p-3 rounded-full bg-slate-900/80 hover:bg-emerald-600 text-slate-200 hover:text-white border border-slate-800 transition-all shadow-2xl"
+                        title="Previous (Left Arrow)"
+                    >
+                        <ChevronLeft size={24} />
+                    </button>
+                )}
+
+                <div className="max-w-5xl max-h-[75vh] w-full h-full flex items-center justify-center px-4">
+                    <img
+                        src={photo.image_url}
+                        alt={photo.title || 'Enlarged photo'}
+                        className="max-w-full max-h-[75vh] object-contain rounded-2xl shadow-2xl border border-slate-800/60"
+                    />
+                </div>
+
+                {photos.length > 1 && (
+                    <button
+                        onClick={onNext}
+                        className="absolute right-2 sm:right-6 z-20 p-3 rounded-full bg-slate-900/80 hover:bg-emerald-600 text-slate-200 hover:text-white border border-slate-800 transition-all shadow-2xl"
+                        title="Next (Right Arrow)"
+                    >
+                        <ChevronRight size={24} />
+                    </button>
+                )}
+            </div>
+
+            <div className="text-center space-y-1 max-w-xl mx-auto z-10">
+                <h2 className="text-lg sm:text-xl font-bold text-white">
+                    {photo.title || 'Untitled Memory'}
+                </h2>
+                {photo.year_tag && (
+                    <p className="text-xs text-slate-400 flex items-center justify-center gap-1">
+                        <Calendar size={12} className="text-emerald-400" />
+                        <span>{photo.year_tag}</span>
+                    </p>
+                )}
             </div>
         </div>
     );
@@ -371,7 +498,6 @@ function ExecutiveCarousel({ leaderMessages }) {
             onBlur={() => setPaused(false)}
             className="bg-slate-900/80 border border-slate-800 rounded-3xl p-6 sm:p-10 lg:p-12 backdrop-blur-md relative overflow-hidden shadow-2xl"
             role="region"
-            aria-roledescription="carousel"
             aria-label="Executive leadership addresses"
         >
             <Quote size={180} className="absolute -right-6 -bottom-6 text-slate-800/20 pointer-events-none z-0 hidden sm:block" aria-hidden="true" />
@@ -489,10 +615,14 @@ export default function HomePage() {
     const [loading, setLoading] = useState(true);
     const [leaderMessages, setLeaderMessages] = useState(DEFAULT_LEADER_MESSAGES);
 
+    const [lightboxIndex, setLightboxIndex] = useState(null);
+
     const [statsRef, statsInView] = useInView();
-    const [execRef, execInView] = useInView();
     const [galleryRef, galleryInView] = useInView();
     const [newsRef, newsInView] = useInView();
+
+    const galleryScroll = useDraggableScroll();
+    const postsScroll = useDraggableScroll();
 
     useEffect(() => {
         fetchHomeData();
@@ -532,19 +662,20 @@ export default function HomePage() {
                 const validPosts = (postsData || []).filter(
                     (p) => !p.status || p.status.toLowerCase() === 'published'
                 );
-                setRecentPosts(validPosts.length > 0 ? validPosts : postsData || []);
+                setRecentPosts((validPosts.length > 0 ? validPosts : postsData || []).slice(0, 15));
             }
 
-            const { data: galleryData, error: galleryErr } = await supabase
+            const { data: galleryPool, error: galleryErr } = await supabase
                 .from('gallery')
                 .select('*')
                 .order('created_at', { ascending: false })
-                .limit(15);
+                .limit(100);
 
             if (galleryErr) {
                 console.error('Error fetching gallery:', galleryErr);
             } else {
-                setRecentGallery(galleryData || []);
+                const pool = galleryPool || [];
+                setRecentGallery(shuffleArray(pool).slice(0, 15));
             }
 
             const { data: siteSettings } = await supabase
@@ -569,17 +700,19 @@ export default function HomePage() {
         }
     };
 
-    const galleryItems = useMemo(
-        () => (recentGallery.length > 5 ? [...recentGallery, ...recentGallery] : recentGallery),
-        [recentGallery]
-    );
-    const postItems = useMemo(
-        () => (recentPosts.length > 5 ? [...recentPosts, ...recentPosts] : recentPosts),
-        [recentPosts]
-    );
+    const openLightbox = useCallback((item) => {
+        if (galleryScroll.hasDragged()) return;
+        const realIndex = recentGallery.findIndex((p) => p.id === item.id);
+        setLightboxIndex(realIndex >= 0 ? realIndex : 0);
+    }, [recentGallery, galleryScroll]);
 
-    const galleryScroll = useDraggableScroll(recentGallery.length, 0.6);
-    const postsScroll = useDraggableScroll(recentPosts.length, 0.6);
+    const closeLightbox = useCallback(() => setLightboxIndex(null), []);
+    const nextPhoto = useCallback(() => {
+        setLightboxIndex((prev) => (prev === null ? prev : (prev + 1) % recentGallery.length));
+    }, [recentGallery.length]);
+    const prevPhoto = useCallback(() => {
+        setLightboxIndex((prev) => (prev === null ? prev : (prev === 0 ? recentGallery.length - 1 : prev - 1)));
+    }, [recentGallery.length]);
 
     const statCards = [
         { icon: Users, value: stats.members, label: 'Verified Members', accent: 'emerald' },
@@ -642,11 +775,11 @@ export default function HomePage() {
                 </section>
 
                 {/* 3. Executive Messages */}
-                <section ref={execRef} className="py-14 sm:py-20 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
+                <section className="py-14 sm:py-20 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
                     <ExecutiveCarousel leaderMessages={leaderMessages} />
                 </section>
 
-                {/* 4. Photo Gallery */}
+                {/* 4. Photo Gallery (Manual Scroll with Prev/Next buttons in Header) */}
                 <section ref={galleryRef} className="py-12 sm:py-16 space-y-6 sm:space-y-8 overflow-hidden">
                     <SectionHeader
                         eyebrow="Photo Gallery"
@@ -654,20 +787,22 @@ export default function HomePage() {
                         title="Memorable Moments"
                         linkTo="/gallery"
                         linkLabel="Explore Gallery"
+                        onPrev={() => galleryScroll.scrollByAmount(-1)}
+                        onNext={() => galleryScroll.scrollByAmount(1)}
                     />
 
                     {loading ? (
                         <RailSkeleton variant="gallery" />
                     ) : recentGallery.length > 0 ? (
-                        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                             <div
                                 ref={galleryScroll.ref}
                                 {...galleryScroll.events}
-                                className="flex gap-4 overflow-x-auto scrollbar-none py-4 cursor-grab active:cursor-grabbing select-none snap-x snap-mandatory"
+                                className="flex gap-4 sm:gap-5 overflow-x-auto scrollbar-none py-2 cursor-grab active:cursor-grabbing select-none snap-x snap-mandatory"
                                 style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
                             >
-                                {galleryItems.map((item, idx) => (
-                                    <GalleryCard key={`${item.id}-${idx}`} item={item} />
+                                {recentGallery.map((item) => (
+                                    <GalleryCard key={item.id} item={item} onOpen={openLightbox} />
                                 ))}
                             </div>
                         </div>
@@ -676,7 +811,7 @@ export default function HomePage() {
                     )}
                 </section>
 
-                {/* 5. Latest News */}
+                {/* 5. Latest News (Manual Scroll with Prev/Next buttons in Header) */}
                 <section ref={newsRef} className="py-12 sm:py-16 pb-16 sm:pb-20 space-y-6 sm:space-y-8 overflow-hidden">
                     <SectionHeader
                         eyebrow="News & Articles"
@@ -684,20 +819,22 @@ export default function HomePage() {
                         title="Latest Announcements"
                         linkTo="/blog"
                         linkLabel="View All News"
+                        onPrev={() => postsScroll.scrollByAmount(-1)}
+                        onNext={() => postsScroll.scrollByAmount(1)}
                     />
 
                     {loading ? (
                         <RailSkeleton variant="news" />
                     ) : recentPosts.length > 0 ? (
-                        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                             <div
                                 ref={postsScroll.ref}
                                 {...postsScroll.events}
-                                className="flex gap-4 sm:gap-5 overflow-x-auto scrollbar-none py-4 cursor-grab active:cursor-grabbing select-none snap-x snap-mandatory"
+                                className="flex gap-4 sm:gap-5 overflow-x-auto scrollbar-none py-2 cursor-grab active:cursor-grabbing select-none snap-x snap-mandatory"
                                 style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
                             >
-                                {postItems.map((post, idx) => (
-                                    <NewsCard key={`${post.id}-${idx}`} post={post} />
+                                {recentPosts.map((post) => (
+                                    <NewsCard key={post.id} post={post} />
                                 ))}
                             </div>
                         </div>
@@ -708,6 +845,17 @@ export default function HomePage() {
             </main>
 
             <Footer />
+
+            {/* Full-screen preview for the gallery */}
+            {lightboxIndex !== null && recentGallery.length > 0 && (
+                <GalleryLightbox
+                    photos={recentGallery}
+                    index={lightboxIndex}
+                    onClose={closeLightbox}
+                    onNext={nextPhoto}
+                    onPrev={prevPhoto}
+                />
+            )}
         </div>
     );
 }

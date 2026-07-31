@@ -21,7 +21,8 @@ import {
     ShieldCheck,
     Vote,
     Video,
-    Settings
+    Settings,
+    Calendar
 } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 
@@ -448,6 +449,29 @@ export default function AdminDashboard() {
                         </Link>
 
                         <Link
+                            to="/admin/images"
+                            className="w-full flex items-center justify-between px-4 py-3 rounded-xl text-xs font-medium text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors group"
+                        >
+                            <div className="flex items-center gap-3">
+                                <ImageIcon size={18} />
+                                <span>Manage Images</span>
+                            </div>
+                            <ArrowRight size={14} className="opacity-0 group-hover:opacity-100 transition-opacity" />
+                        </Link>
+
+                        {/* Events Schedule Link added */}
+                        <Link
+                            to="/admin/events"
+                            className="w-full flex items-center justify-between px-4 py-3 rounded-xl text-xs font-medium text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors group"
+                        >
+                            <div className="flex items-center gap-3">
+                                <Calendar size={18} />
+                                <span>Events Schedule</span>
+                            </div>
+                            <ArrowRight size={14} className="opacity-0 group-hover:opacity-100 transition-opacity" />
+                        </Link>
+
+                        <Link
                             to="/admin/polls"
                             className="w-full flex items-center justify-between px-4 py-3 rounded-xl text-xs font-medium text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors group"
                         >
@@ -549,16 +573,21 @@ export default function AdminDashboard() {
                             <span className="text-[11px] text-amber-400 mt-1 inline-block">Action Needed</span>
                         </div>
 
-                        <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 backdrop-blur-sm">
+                        <Link
+                            to="/admin/images"
+                            className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 backdrop-blur-sm hover:border-teal-500/50 transition-colors group"
+                        >
                             <div className="flex items-center justify-between">
                                 <span className="text-xs font-medium text-slate-400">Gallery Images</span>
-                                <div className="p-2.5 rounded-xl bg-teal-500/10 text-teal-400">
+                                <div className="p-2.5 rounded-xl bg-teal-500/10 text-teal-400 group-hover:scale-110 transition-transform">
                                     <ImageIcon size={20} />
                                 </div>
                             </div>
                             <div className="text-2xl font-bold text-white mt-3">{stats.totalGallery}</div>
-                            <span className="text-[11px] text-teal-400 mt-1 inline-block">Uploaded Photos</span>
-                        </div>
+                            <span className="text-[11px] text-teal-400 mt-1 inline-block">
+                                Manage Images →
+                            </span>
+                        </Link>
 
                         <Link
                             to="/admin/content"
@@ -594,6 +623,15 @@ export default function AdminDashboard() {
                             <Plus size={16} />
                             <span>Publish News Article</span>
                         </button>
+
+                        {/* Events Manager Quick Link */}
+                        <Link
+                            to="/admin/events"
+                            className="px-5 py-2.5 bg-emerald-600/20 hover:bg-emerald-600 hover:text-white border border-emerald-500/30 text-emerald-400 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all"
+                        >
+                            <Calendar size={16} />
+                            <span>Manage Events Schedule</span>
+                        </Link>
 
                         <button
                             onClick={() => setShowPresidentModal(true)}
@@ -961,7 +999,7 @@ export default function AdminDashboard() {
                 </div>
             )}
 
-            {/* 3. MULTI-LEADER ADDRESSES MODAL (President, Secretary, Treasurer with Image Upload) */}
+            {/* 3. MULTI-LEADER ADDRESSES MODAL */}
             {showLeadersModal && (
                 <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
                     <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-md w-full space-y-4 shadow-2xl">

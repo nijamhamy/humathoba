@@ -52,6 +52,10 @@ export default function MemberDashboard() {
     // Events State
     const [events, setEvents] = useState([]);
 
+    // Event RSVP State (per-event: 'attending' | 'not_attending')
+    const [eventRsvps, setEventRsvps] = useState({});
+    const [rsvpLoading, setRsvpLoading] = useState(null); // holds the event id currently submitting
+
     // Live Stream State
     const [liveStreams, setLiveStreams] = useState([]);
 
@@ -114,6 +118,18 @@ export default function MemberDashboard() {
                 .select('*')
                 .order('event_date', { ascending: true });
             setEvents(eventsData || []);
+
+            // 4b. Fetch this member's RSVP responses for those events
+            if (dbUser) {
+                const { data: rsvpData } = await supabase
+                    .from('event_rsvps')
+                    .select('event_id, status')
+                    .eq('user_id', dbUser.id);
+
+                const rsvpMap = {};
+                (rsvpData || []).forEach(r => { rsvpMap[r.event_id] = r.status; });
+                setEventRsvps(rsvpMap);
+            }
 
             // 5. Fetch Live Video Streams
             const { data: streamsData } = await supabase.from('live_streams').select('*');
@@ -227,6 +243,33 @@ export default function MemberDashboard() {
             alert('Vote submitted successfully!');
         } catch (err) {
             alert('Failed to submit vote: ' + err.message);
+        }
+    };
+
+    // Submit / Update an Event RSVP ("Yes, I'll come" or "Sorry, I can't come")
+    const handleRsvp = async (eventId, status) => {
+        if (!currentUser) return;
+        setRsvpLoading(eventId);
+        try {
+            const { error } = await supabase
+                .from('event_rsvps')
+                .upsert(
+                    {
+                        event_id: eventId,
+                        user_id: currentUser.id,
+                        status,
+                        responded_at: new Date(),
+                    },
+                    { onConflict: 'event_id,user_id' }
+                );
+
+            if (error) throw error;
+
+            setEventRsvps((prev) => ({ ...prev, [eventId]: status }));
+        } catch (err) {
+            alert('Failed to submit your response: ' + err.message);
+        } finally {
+            setRsvpLoading(null);
         }
     };
 
@@ -643,27 +686,74 @@ export default function MemberDashboard() {
                     <div className="space-y-6">
                         <div className="border-b border-slate-800 pb-4">
                             <h2 className="text-lg font-bold text-white">Upcoming Events & Programs</h2>
-                            <p className="text-xs text-slate-400 mt-1">Check out scheduled college conventions and reunions.</p>
+                            <p className="text-xs text-slate-400 mt-1">Check out scheduled college conventions and reunions, and let us know if you're coming.</p>
                         </div>
 
                         {events.length > 0 ? (
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                                {events.map((ev) => (
-                                    <div key={ev.id} className="bg-slate-900/80 border border-slate-800 rounded-3xl p-6 space-y-3 backdrop-blur-xl flex flex-col justify-between">
-                                        <div className="space-y-2">
-                                            <span className="text-[10px] font-semibold uppercase tracking-wider text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20">
-                                                {ev.category || 'Program'}
-                                            </span>
-                                            <h3 className="text-base font-bold text-white">{ev.title}</h3>
-                                            <p className="text-xs text-slate-400 line-clamp-3">{ev.description}</p>
-                                        </div>
+                                {events.map((ev) => {
+                                    const myRsvp = eventRsvps[ev.id];
+                                    const isResponding = rsvpLoading === ev.id;
 
-                                        <div className="border-t border-slate-800/80 pt-3 text-[11px] text-slate-400 space-y-1">
-                                            <div className="flex items-center gap-1.5"><Calendar size={13} className="text-emerald-400" /> {ev.event_date} at {ev.event_time}</div>
-                                            <div className="flex items-center gap-1.5"><MapPin size={13} className="text-emerald-400" /> {ev.location}</div>
+                                    return (
+                                        <div key={ev.id} className="bg-slate-900/80 border border-slate-800 rounded-3xl p-6 space-y-3 backdrop-blur-xl flex flex-col justify-between">
+                                            <div className="space-y-2">
+                                                <span className="text-[10px] font-semibold uppercase tracking-wider text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20">
+                                                    {ev.category || 'Program'}
+                                                </span>
+                                                <h3 className="text-base font-bold text-white">{ev.title}</h3>
+                                                <p className="text-xs text-slate-400 line-clamp-3">{ev.description}</p>
+                                            </div>
+
+                                            <div className="border-t border-slate-800/80 pt-3 text-[11px] text-slate-400 space-y-1">
+                                                <div className="flex items-center gap-1.5"><Calendar size={13} className="text-emerald-400" /> {ev.event_date} at {ev.event_time}</div>
+                                                <div className="flex items-center gap-1.5"><MapPin size={13} className="text-emerald-400" /> {ev.location}</div>
+                                            </div>
+
+                                            {/* RSVP Section */}
+                                            <div className="border-t border-slate-800/80 pt-3">
+                                                {myRsvp ? (
+                                                    <div className="space-y-1.5">
+                                                        <div className={`flex items-center gap-1.5 text-[11px] font-semibold ${myRsvp === 'attending' ? 'text-emerald-400' : 'text-rose-400'
+                                                            }`}>
+                                                            {myRsvp === 'attending' ? <CheckCircle2 size={14} /> : <XCircle size={14} />}
+                                                            {myRsvp === 'attending' ? "You're attending" : "You can't attend"}
+                                                        </div>
+                                                        <button
+                                                            onClick={() => handleRsvp(ev.id, myRsvp === 'attending' ? 'not_attending' : 'attending')}
+                                                            disabled={isResponding}
+                                                            className="text-[10px] text-slate-500 hover:text-slate-300 underline disabled:opacity-50"
+                                                        >
+                                                            {isResponding ? 'Updating...' : 'Change my response'}
+                                                        </button>
+                                                    </div>
+                                                ) : (
+                                                    <div className="space-y-2">
+                                                        <p className="text-[11px] text-slate-400 font-medium">Will you attend?</p>
+                                                        <div className="flex items-center gap-2">
+                                                            <button
+                                                                onClick={() => handleRsvp(ev.id, 'attending')}
+                                                                disabled={isResponding}
+                                                                className="flex-1 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600 text-emerald-400 hover:text-white text-[11px] font-semibold flex items-center justify-center gap-1.5 border border-emerald-500/30 transition-colors disabled:opacity-50"
+                                                            >
+                                                                {isResponding ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle2 size={13} />}
+                                                                Yes, I'll come
+                                                            </button>
+                                                            <button
+                                                                onClick={() => handleRsvp(ev.id, 'not_attending')}
+                                                                disabled={isResponding}
+                                                                className="flex-1 py-1.5 rounded-lg bg-rose-600/20 hover:bg-rose-600 text-rose-400 hover:text-white text-[11px] font-semibold flex items-center justify-center gap-1.5 border border-rose-500/30 transition-colors disabled:opacity-50"
+                                                            >
+                                                                {isResponding ? <Loader2 size={12} className="animate-spin" /> : <XCircle size={13} />}
+                                                                Sorry, can't
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
                                         </div>
-                                    </div>
-                                ))}
+                                    );
+                                })}
                             </div>
                         ) : (
                             <p className="text-xs text-slate-500 text-center py-12">No upcoming events scheduled right now.</p>

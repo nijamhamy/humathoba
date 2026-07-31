@@ -24,6 +24,8 @@ import ManageMembers from './pages/admin/ManageMembers';
 import ManageContent from './pages/admin/ManageContent';
 import AdminPolls from './pages/admin/AdminPolls';
 import AdminStreams from './pages/admin/AdminStreams';
+import ManageImages from './pages/admin/images/ManageImages';
+import AdminEvents from './pages/admin/AdminEvents'; // <-- Events page imported
 
 // ScrollToTop Helper Component for 100% Professional UX
 function ScrollToTop() {
@@ -65,10 +67,13 @@ function App() {
 
           {/* Admin Dashboard Routes */}
           <Route path="/admin/dashboard" element={<AdminDashboard />} />
+          <Route path="/admin" element={<AdminDashboard />} />
           <Route path="/admin/members" element={<ManageMembers />} />
           <Route path="/admin/content" element={<ManageContent />} />
           <Route path="/admin/polls" element={<AdminPolls />} />
           <Route path="/admin/streams" element={<AdminStreams />} />
+          <Route path="/admin/images" element={<ManageImages />} />
+          <Route path="/admin/events" element={<AdminEvents />} /> {/* <-- Events route added */}
 
           {/* Fallback Route for 404 Not Found */}
           <Route
