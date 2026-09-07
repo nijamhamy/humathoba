@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
+import { Helmet } from 'react-helmet-async';
 import Navbar from '../../components/layout/Navbar';
 import Footer from '../../components/layout/Footer';
 import {
@@ -17,15 +18,15 @@ import {
 } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 
+const SITE_NAME = 'Old Boys Association'; // adjust to your actual site name
+
 export default function BlogSinglePage() {
     const { id } = useParams();
     const [post, setPost] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [notFound, setNotFound] = useState(false);
 
-    // Which photo is showing in the lightbox / hero
     const [activeImageIndex, setActiveImageIndex] = useState(0);
-
-    // Full-screen lightbox
     const [lightboxOpen, setLightboxOpen] = useState(false);
     const [touchStartX, setTouchStartX] = useState(0);
 
@@ -37,6 +38,7 @@ export default function BlogSinglePage() {
 
     const fetchPostDetails = async () => {
         setLoading(true);
+        setNotFound(false);
         try {
             const { data, error } = await supabase
                 .from('blog_posts')
@@ -49,6 +51,7 @@ export default function BlogSinglePage() {
             setActiveImageIndex(0);
         } catch (err) {
             console.error('Error fetching post details:', err.message);
+            setNotFound(true);
         } finally {
             setLoading(false);
         }
@@ -63,8 +66,6 @@ export default function BlogSinglePage() {
         }
     };
 
-    // Combine the images array with the legacy single featured_image_url,
-    // so articles created before multi-photo support still display fine.
     const images = post
         ? Array.isArray(post.images) && post.images.length > 0
             ? post.images
@@ -75,6 +76,13 @@ export default function BlogSinglePage() {
 
     const hasImages = images.length > 0;
     const activeImage = images[activeImageIndex];
+    const coverImage = images.length > 0 ? images[0] : (post?.featured_image_url || null);
+
+    const metaDescription = post?.content
+        ? post.content.replace(/\s+/g, ' ').trim().slice(0, 160) + (post.content.length > 160 ? '…' : '')
+        : 'Read the latest news and updates from our Old Boys Association.';
+
+    const pageUrl = typeof window !== 'undefined' ? window.location.href : '';
 
     const openLightboxAt = (index) => {
         setActiveImageIndex(index);
@@ -112,6 +120,36 @@ export default function BlogSinglePage() {
 
     return (
         <div className="bg-slate-950 min-h-screen text-slate-100 flex flex-col justify-between font-sans selection:bg-emerald-500 selection:text-white">
+
+            {post && !loading ? (
+                <Helmet>
+                    <title>{post.title} | {SITE_NAME}</title>
+                    <meta name="description" content={metaDescription} />
+
+                    <meta property="og:type" content="article" />
+                    <meta property="og:title" content={post.title} />
+                    <meta property="og:description" content={metaDescription} />
+                    <meta property="og:url" content={pageUrl} />
+                    <meta property="og:site_name" content={SITE_NAME} />
+                    {coverImage && <meta property="og:image" content={coverImage} />}
+                    {coverImage && <meta property="og:image:width" content="1200" />}
+                    {coverImage && <meta property="og:image:height" content="630" />}
+
+                    <meta name="twitter:card" content={coverImage ? 'summary_large_image' : 'summary'} />
+                    <meta name="twitter:title" content={post.title} />
+                    <meta name="twitter:description" content={metaDescription} />
+                    {coverImage && <meta name="twitter:image" content={coverImage} />}
+                </Helmet>
+            ) : (
+                <Helmet>
+                    <title>{loading ? 'Loading Article…' : 'Article Not Found'} | {SITE_NAME}</title>
+                    <meta
+                        name="description"
+                        content="Read the latest news and updates from our Old Boys Association."
+                    />
+                </Helmet>
+            )}
+
             <Navbar />
 
             <main className="flex-grow pt-24 sm:pt-28 pb-20 px-4 sm:px-6 lg:px-8 max-w-5xl mx-auto w-full">
@@ -201,7 +239,7 @@ export default function BlogSinglePage() {
                             </div>
                         </div>
 
-                        {/* Photo Gallery Grid — every photo attached to the article */}
+                        {/* Photo Gallery Grid */}
                         {images.length > 1 && (
                             <div className="space-y-3">
                                 <h2 className="text-sm font-bold text-white flex items-center gap-2">
@@ -307,8 +345,8 @@ export default function BlogSinglePage() {
                                     key={index}
                                     onClick={() => setActiveImageIndex(index)}
                                     className={`shrink-0 w-14 h-14 rounded-lg overflow-hidden border-2 transition-all ${index === activeImageIndex
-                                            ? 'border-emerald-500 ring-2 ring-emerald-500/30'
-                                            : 'border-slate-800 opacity-60 hover:opacity-100'
+                                        ? 'border-emerald-500 ring-2 ring-emerald-500/30'
+                                        : 'border-slate-800 opacity-60 hover:opacity-100'
                                         }`}
                                 >
                                     <img src={img} alt="" className="w-full h-full object-cover" />
