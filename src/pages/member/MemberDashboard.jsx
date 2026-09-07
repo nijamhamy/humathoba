@@ -29,6 +29,10 @@ import {
     Newspaper,
     Send,
     PlusCircle,
+    Upload,
+    LinkIcon,
+    X,
+    Images,
 } from 'lucide-react';
 import Navbar from '../../components/layout/Navbar';
 import Footer from '../../components/layout/Footer';
@@ -73,8 +77,14 @@ export default function MemberDashboard() {
     const [articleData, setArticleData] = useState({
         title: '',
         content: '',
-        featured_image_url: '',
     });
+
+    // Multi-photo state for the article being composed.
+    // Each entry: { id, source: 'file' | 'url', file?, url?, previewUrl }
+    // pendingArticleImages[0] is always the cover photo.
+    const [pendingArticleImages, setPendingArticleImages] = useState([]);
+    const [articleImageUrlInput, setArticleImageUrlInput] = useState('');
+    const articleFileInputRef = useRef(null);
 
     // Ref to the physical card element so we can capture it as an image
     const cardRef = useRef(null);
@@ -309,6 +319,78 @@ export default function MemberDashboard() {
         }
     };
 
+    // --- Multi-photo helpers for the article submission modal ---
+
+    const convertFileToBase64Async = (file) => {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = (error) => reject(error);
+        });
+    };
+
+    const handleArticleFilesSelected = (e) => {
+        const files = Array.from(e.target.files || []);
+        if (files.length === 0) return;
+
+        const newEntries = files.map((file) => ({
+            id: crypto.randomUUID(),
+            source: 'file',
+            file,
+            previewUrl: URL.createObjectURL(file),
+        }));
+
+        setPendingArticleImages((prev) => [...prev, ...newEntries]);
+        if (articleFileInputRef.current) articleFileInputRef.current.value = '';
+    };
+
+    const handleAddArticleImageUrl = () => {
+        const trimmed = articleImageUrlInput.trim();
+        if (!trimmed) return;
+
+        setPendingArticleImages((prev) => [
+            ...prev,
+            { id: crypto.randomUUID(), source: 'url', url: trimmed, previewUrl: trimmed },
+        ]);
+        setArticleImageUrlInput('');
+    };
+
+    const handleRemoveArticleImage = (id) => {
+        setPendingArticleImages((prev) => {
+            const target = prev.find((p) => p.id === id);
+            if (target && target.source === 'file' && target.previewUrl) {
+                URL.revokeObjectURL(target.previewUrl);
+            }
+            return prev.filter((p) => p.id !== id);
+        });
+    };
+
+    const handleMakeArticleCover = (id) => {
+        setPendingArticleImages((prev) => {
+            const index = prev.findIndex((p) => p.id === id);
+            if (index <= 0) return prev;
+            const copy = [...prev];
+            const [item] = copy.splice(index, 1);
+            copy.unshift(item);
+            return copy;
+        });
+    };
+
+    const resetArticleForm = () => {
+        pendingArticleImages.forEach((p) => {
+            if (p.source === 'file' && p.previewUrl) URL.revokeObjectURL(p.previewUrl);
+        });
+        setPendingArticleImages([]);
+        setArticleImageUrlInput('');
+        setArticleData({ title: '', content: '' });
+    };
+
+    const closeArticleModal = () => {
+        setShowArticleModal(false);
+        resetArticleForm();
+    };
+
     // Submit a New Article for Admin Review
     const handleSubmitArticle = async (e) => {
         e.preventDefault();
@@ -319,12 +401,24 @@ export default function MemberDashboard() {
                 .replace(/[^a-z0-9]+/g, '-')
                 .replace(/(^-|-$)+/g, '')}-${Date.now()}`;
 
+            // Resolve every pending photo (file -> base64, url -> as-is).
+            // pendingArticleImages[0] is always the cover photo.
+            const resolvedImages = [];
+            for (const item of pendingArticleImages) {
+                if (item.source === 'file') {
+                    resolvedImages.push(await convertFileToBase64Async(item.file));
+                } else {
+                    resolvedImages.push(item.url);
+                }
+            }
+
             const { error } = await supabase.from('blog_posts').insert([
                 {
                     title: articleData.title,
                     slug: generatedSlug,
                     content: articleData.content,
-                    featured_image_url: articleData.featured_image_url || null,
+                    images: resolvedImages,
+                    featured_image_url: resolvedImages[0] || null,
                     author_name: currentUser.full_name,
                     user_id: currentUser.id,
                     status: 'pending',
@@ -334,8 +428,7 @@ export default function MemberDashboard() {
             if (error) throw error;
 
             alert('Article submitted successfully! It will appear once approved by an admin.');
-            setShowArticleModal(false);
-            setArticleData({ title: '', content: '', featured_image_url: '' });
+            closeArticleModal();
             fetchMemberData();
         } catch (err) {
             alert('Failed to submit article: ' + err.message);
@@ -384,6 +477,14 @@ export default function MemberDashboard() {
     const handleLogout = async () => {
         await supabase.auth.signOut();
         navigate('/login');
+    };
+
+    // Helper: get the image list for a saved article, falling back to the
+    // legacy single featured_image_url for older articles.
+    const getArticleImages = (article) => {
+        if (Array.isArray(article.images) && article.images.length > 0) return article.images;
+        if (article.featured_image_url) return [article.featured_image_url];
+        return [];
     };
 
     if (loading) {
@@ -893,6 +994,7 @@ export default function MemberDashboard() {
                                 {myArticles.map((article) => {
                                     const isPublished = article.status === 'published';
                                     const isRejected = article.status === 'rejected';
+                                    const articleImages = getArticleImages(article);
                                     const formattedDate = article.created_at
                                         ? new Date(article.created_at).toLocaleDateString(undefined, {
                                             year: 'numeric',
@@ -906,13 +1008,19 @@ export default function MemberDashboard() {
                                             key={article.id}
                                             className="bg-slate-900/80 border border-slate-800 rounded-2xl sm:rounded-3xl p-5 sm:p-6 space-y-3 backdrop-blur-xl"
                                         >
-                                            {article.featured_image_url && (
-                                                <div className="w-full h-32 rounded-xl overflow-hidden bg-slate-950 border border-slate-800">
+                                            {articleImages.length > 0 && (
+                                                <div className="relative w-full h-32 rounded-xl overflow-hidden bg-slate-950 border border-slate-800">
                                                     <img
-                                                        src={article.featured_image_url}
+                                                        src={articleImages[0]}
                                                         alt={article.title}
                                                         className="w-full h-full object-cover"
                                                     />
+                                                    {articleImages.length > 1 && (
+                                                        <div className="absolute bottom-2 right-2 bg-slate-950/80 backdrop-blur-md px-2 py-0.5 rounded-full text-[10px] font-semibold text-emerald-400 border border-slate-800 flex items-center gap-1">
+                                                            <Images size={11} />
+                                                            <span>{articleImages.length} photos</span>
+                                                        </div>
+                                                    )}
                                                 </div>
                                             )}
                                             <div className="flex items-start justify-between gap-2">
@@ -921,10 +1029,10 @@ export default function MemberDashboard() {
                                                 </h3>
                                                 <span
                                                     className={`shrink-0 text-[10px] font-semibold px-2.5 py-0.5 rounded-full border capitalize whitespace-nowrap ${isPublished
-                                                            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-                                                            : isRejected
-                                                                ? 'bg-rose-500/10 border-rose-500/30 text-rose-400'
-                                                                : 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+                                                        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                                                        : isRejected
+                                                            ? 'bg-rose-500/10 border-rose-500/30 text-rose-400'
+                                                            : 'bg-amber-500/10 border-amber-500/30 text-amber-400'
                                                         }`}
                                                 >
                                                     {article.status}
@@ -1015,7 +1123,7 @@ export default function MemberDashboard() {
                                 Submit New Article
                             </h3>
                             <button
-                                onClick={() => setShowArticleModal(false)}
+                                onClick={closeArticleModal}
                                 className="text-slate-400 hover:text-white"
                             >
                                 <XCircle size={20} />
@@ -1041,19 +1149,103 @@ export default function MemberDashboard() {
                                 />
                             </div>
 
-                            <div>
-                                <label className="block text-xs font-medium text-slate-300 mb-1">
-                                    Featured Image URL (Optional)
-                                </label>
-                                <input
-                                    type="url"
-                                    value={articleData.featured_image_url}
-                                    onChange={(e) =>
-                                        setArticleData({ ...articleData, featured_image_url: e.target.value })
-                                    }
-                                    placeholder="https://images.unsplash.com/..."
-                                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
-                                />
+                            {/* Multi-photo uploader */}
+                            <div className="space-y-2.5">
+                                <div className="flex items-center justify-between flex-wrap gap-1">
+                                    <label className="block text-xs font-medium text-slate-300">
+                                        Photos {pendingArticleImages.length > 0 && `(${pendingArticleImages.length})`}
+                                    </label>
+                                    <span className="text-[10px] text-slate-500">
+                                        First photo (or the one you pin) becomes the cover
+                                    </span>
+                                </div>
+
+                                <div className="flex flex-col sm:flex-row gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => articleFileInputRef.current?.click()}
+                                        className="flex-1 py-2 rounded-xl border border-dashed border-slate-700 text-slate-400 hover:text-white hover:border-emerald-500 text-xs font-semibold transition-all flex items-center justify-center gap-2"
+                                    >
+                                        <Upload size={14} />
+                                        <span>Choose Photos from Device</span>
+                                    </button>
+                                    <input
+                                        ref={articleFileInputRef}
+                                        type="file"
+                                        accept="image/*"
+                                        multiple
+                                        onChange={handleArticleFilesSelected}
+                                        className="hidden"
+                                    />
+                                </div>
+
+                                <div className="flex gap-2">
+                                    <div className="relative flex-1">
+                                        <LinkIcon size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+                                        <input
+                                            type="url"
+                                            value={articleImageUrlInput}
+                                            onChange={(e) => setArticleImageUrlInput(e.target.value)}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter') {
+                                                    e.preventDefault();
+                                                    handleAddArticleImageUrl();
+                                                }
+                                            }}
+                                            placeholder="Or paste an image URL..."
+                                            className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 transition-colors"
+                                        />
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={handleAddArticleImageUrl}
+                                        className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition-colors"
+                                    >
+                                        Add
+                                    </button>
+                                </div>
+
+                                {pendingArticleImages.length > 0 && (
+                                    <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 pt-1">
+                                        {pendingArticleImages.map((entry, index) => (
+                                            <div
+                                                key={entry.id}
+                                                className={`relative aspect-square rounded-xl overflow-hidden bg-slate-950 border-2 transition-all ${index === 0 ? 'border-emerald-500' : 'border-slate-800'
+                                                    }`}
+                                            >
+                                                <img src={entry.previewUrl} alt="Selected" className="w-full h-full object-cover" />
+
+                                                {index === 0 && (
+                                                    <div className="absolute bottom-1 left-1 right-1 bg-emerald-600/90 backdrop-blur-sm text-white text-[9px] font-semibold rounded-md py-0.5 text-center flex items-center justify-center gap-1">
+                                                        <Star size={9} className="fill-white" />
+                                                        <span>Cover</span>
+                                                    </div>
+                                                )}
+
+                                                <div className="absolute top-1 right-1 flex flex-col gap-1">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleRemoveArticleImage(entry.id)}
+                                                        className="p-1 rounded-md bg-rose-600/90 hover:bg-rose-500 text-white shadow-md transition-colors"
+                                                        title="Remove"
+                                                    >
+                                                        <X size={11} />
+                                                    </button>
+                                                    {index !== 0 && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleMakeArticleCover(entry.id)}
+                                                            className="p-1 rounded-md bg-slate-900/90 hover:bg-emerald-600 text-white shadow-md transition-colors"
+                                                            title="Set as cover"
+                                                        >
+                                                            <Star size={11} />
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
 
                             <div>
