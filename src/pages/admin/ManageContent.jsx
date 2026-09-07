@@ -98,7 +98,14 @@ export default function ManageContent() {
                 upsert: false,
             });
 
-        if (uploadError) throw uploadError;
+        if (uploadError) {
+            if (uploadError.message?.toLowerCase().includes('bucket not found')) {
+                throw new Error(
+                    `Storage bucket "${STORAGE_BUCKET}" doesn't exist yet. Create a public bucket named "${STORAGE_BUCKET}" in Supabase → Storage, then try again.`
+                );
+            }
+            throw uploadError;
+        }
 
         const { data } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(filePath);
         return data.publicUrl;
