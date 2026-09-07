@@ -27,6 +27,10 @@ const TABS = [
     { key: 'all', label: 'All Articles' },
 ];
 
+// Supabase Storage bucket used for article photos. Must be public,
+// and must have an INSERT policy for authenticated users (already added).
+const STORAGE_BUCKET = 'blog-images';
+
 export default function ManageContent() {
     const [posts, setPosts] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -43,6 +47,9 @@ export default function ManageContent() {
     const [pendingImages, setPendingImages] = useState([]);
     const [urlInput, setUrlInput] = useState('');
     const fileInputRef = useRef(null);
+
+    // Upload progress while creating a post (files upload sequentially to Storage)
+    const [uploadProgress, setUploadProgress] = useState({ done: 0, total: 0 });
 
     const [formData, setFormData] = useState({
         title: '',
@@ -76,13 +83,25 @@ export default function ManageContent() {
         setFormData({ ...formData, [e.target.name]: e.target.value });
     };
 
-    const convertFileToBase64 = (file) => {
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.readAsDataURL(file);
-            reader.onload = () => resolve(reader.result);
-            reader.onerror = (error) => reject(error);
-        });
+    // Uploads a File to Supabase Storage and returns its public URL.
+    // This replaces the old base64 data-URL approach so images work in
+    // Open Graph previews, load faster, and don't bloat the DB rows.
+    const uploadFileToStorage = async (file) => {
+        const fileExt = file.name.split('.').pop();
+        const fileName = `${crypto.randomUUID()}.${fileExt}`;
+        const filePath = fileName;
+
+        const { error: uploadError } = await supabase.storage
+            .from(STORAGE_BUCKET)
+            .upload(filePath, file, {
+                cacheControl: '3600',
+                upsert: false,
+            });
+
+        if (uploadError) throw uploadError;
+
+        const { data } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(filePath);
+        return data.publicUrl;
     };
 
     // --- Pending image helpers (admin "create new article" modal) ---
@@ -140,6 +159,7 @@ export default function ManageContent() {
         });
         setPendingImages([]);
         setUrlInput('');
+        setUploadProgress({ done: 0, total: 0 });
     };
 
     const closeCreateModal = () => {
@@ -153,15 +173,17 @@ export default function ManageContent() {
     const handleCreatePost = async (e) => {
         e.preventDefault();
         setSubmitting(true);
+        setUploadProgress({ done: 0, total: pendingImages.length });
 
         try {
             const resolvedImages = [];
             for (const item of pendingImages) {
                 if (item.source === 'file') {
-                    resolvedImages.push(await convertFileToBase64(item.file));
+                    resolvedImages.push(await uploadFileToStorage(item.file));
                 } else {
                     resolvedImages.push(item.url);
                 }
+                setUploadProgress((prev) => ({ ...prev, done: prev.done + 1 }));
             }
 
             const slug = formData.title
@@ -292,8 +314,8 @@ export default function ManageContent() {
                             key={tab.key}
                             onClick={() => setActiveTab(tab.key)}
                             className={`relative px-4 py-2 rounded-xl text-xs font-semibold border transition-all ${activeTab === tab.key
-                                    ? 'bg-emerald-600 border-emerald-600 text-white'
-                                    : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white hover:border-slate-700'
+                                ? 'bg-emerald-600 border-emerald-600 text-white'
+                                : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white hover:border-slate-700'
                                 }`}
                         >
                             {tab.label}
@@ -365,10 +387,10 @@ export default function ManageContent() {
                                             <div className="flex items-center justify-between">
                                                 <span
                                                     className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2.5 py-0.5 rounded-full border capitalize ${post.status === 'published'
-                                                            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-                                                            : post.status === 'pending'
-                                                                ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
-                                                                : 'bg-slate-500/10 border-slate-500/30 text-slate-400'
+                                                        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                                                        : post.status === 'pending'
+                                                            ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+                                                            : 'bg-slate-500/10 border-slate-500/30 text-slate-400'
                                                         }`}
                                                 >
                                                     {post.status === 'published' ? <CheckCircle2 size={12} /> : <Clock size={12} />}
@@ -450,8 +472,8 @@ export default function ManageContent() {
                             <div className="space-y-1.5">
                                 <span
                                     className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2.5 py-0.5 rounded-full border capitalize ${reviewPost.status === 'published'
-                                            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-                                            : 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+                                        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                                        : 'bg-amber-500/10 border-amber-500/30 text-amber-400'
                                         }`}
                                 >
                                     {reviewPost.status}
@@ -714,6 +736,21 @@ export default function ManageContent() {
                                     <option value="draft">Draft</option>
                                 </select>
                             </div>
+
+                            {submitting && uploadProgress.total > 0 && (
+                                <div className="space-y-1.5">
+                                    <div className="flex items-center justify-between text-[11px] text-slate-400">
+                                        <span>Uploading photos {uploadProgress.done} of {uploadProgress.total}...</span>
+                                        <span>{Math.round((uploadProgress.done / uploadProgress.total) * 100)}%</span>
+                                    </div>
+                                    <div className="w-full h-2 rounded-full bg-slate-950 border border-slate-800 overflow-hidden">
+                                        <div
+                                            className="h-full bg-gradient-to-r from-emerald-600 to-emerald-400 rounded-full transition-all duration-300 ease-out"
+                                            style={{ width: `${(uploadProgress.done / uploadProgress.total) * 100}%` }}
+                                        />
+                                    </div>
+                                </div>
+                            )}
 
                             <div className="pt-2">
                                 <button
