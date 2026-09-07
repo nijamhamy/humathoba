@@ -17,8 +17,8 @@ export default async (request, context) => {
     const id = match[1];
 
     // Supabase REST API வழியாக post-ஐ நேரடியாக fetch செய்யவும்
-    const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
-    const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY');
+    const SUPABASE_URL = Deno.env.get('VITE_SUPABASE_URL');
+    const SUPABASE_ANON_KEY = Deno.env.get('VITE_SUPABASE_ANON_KEY');
 
     const res = await fetch(
         `${SUPABASE_URL}/rest/v1/blog_posts?id=eq.${id}&select=*`,
