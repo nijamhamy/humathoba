@@ -1,12 +1,19 @@
 import React, { useState } from 'react';
 import Navbar from '../../components/layout/Navbar';
 import Footer from '../../components/layout/Footer';
-import { Mail, Phone, MapPin, Send, Loader2, CheckCircle2 } from 'lucide-react';
+import { Mail, Phone, MapPin, Send, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
+import emailjs from '@emailjs/browser';
+
+// Replace these with your own EmailJS credentials
+const EMAILJS_SERVICE_ID = 'service_yhykq4g';
+const EMAILJS_TEMPLATE_ID = 'template_tjwvjyl';
+const EMAILJS_PUBLIC_KEY = '4Uzv_TP__x4I7ZHue';
 
 export default function ContactPage() {
     const [loading, setLoading] = useState(false);
     const [submitted, setSubmitted] = useState(false);
+    const [errorMsg, setErrorMsg] = useState('');
     const [formData, setFormData] = useState({
         name: '',
         email: '',
@@ -21,25 +28,42 @@ export default function ContactPage() {
     const handleSubmit = async (e) => {
         e.preventDefault();
         setLoading(true);
+        setErrorMsg('');
 
         try {
-            // Optional: Store messages in a Supabase 'contact_messages' table if available
-            const { error } = await supabase.from('contact_messages').insert([
+            // Send email notification via EmailJS
+            await emailjs.send(
+                EMAILJS_SERVICE_ID,
+                EMAILJS_TEMPLATE_ID,
                 {
                     name: formData.name,
                     email: formData.email,
                     subject: formData.subject,
                     message: formData.message,
-                    created_at: new Date(),
                 },
-            ]);
+                EMAILJS_PUBLIC_KEY
+            );
 
-            // Even if table isn't created yet, give success confirmation to user
+            // Optional: also log it in Supabase (won't block success if this fails)
+            try {
+                await supabase.from('contact_messages').insert([
+                    {
+                        name: formData.name,
+                        email: formData.email,
+                        subject: formData.subject,
+                        message: formData.message,
+                        created_at: new Date(),
+                    },
+                ]);
+            } catch (dbErr) {
+                console.log('Supabase log failed (non-critical):', dbErr.message);
+            }
+
             setSubmitted(true);
             setFormData({ name: '', email: '', subject: '', message: '' });
         } catch (err) {
-            console.log('Submitted response handled:', err.message);
-            setSubmitted(true);
+            console.error('EmailJS send failed:', err);
+            setErrorMsg('Something went wrong while sending your message. Please try again or email us directly.');
         } finally {
             setLoading(false);
         }
@@ -75,7 +99,7 @@ export default function ContactPage() {
                             <h3 className="text-base font-bold text-white">College Address</h3>
                             <p className="text-xs text-slate-400 leading-relaxed">
                                 Al Hamiya Arabic College,<br />
-                                Sri Lanka.
+                                Kalmunai,Sri Lanka.
                             </p>
                         </div>
 
@@ -85,7 +109,7 @@ export default function ContactPage() {
                             </div>
                             <h3 className="text-base font-bold text-white">Email Address</h3>
                             <p className="text-xs text-slate-400 font-mono">
-                                contact@majlisulhamiyyeen.com
+                                contact.obahamiya@gmail.com
                             </p>
                         </div>
 
@@ -95,7 +119,7 @@ export default function ContactPage() {
                             </div>
                             <h3 className="text-base font-bold text-white">Phone Support</h3>
                             <p className="text-xs text-slate-400 font-mono">
-                                +94 77 000 0000
+                                +94 78 99 77 706
                             </p>
                         </div>
                     </div>
@@ -119,6 +143,13 @@ export default function ContactPage() {
                         ) : (
                             <form onSubmit={handleSubmit} className="space-y-5">
                                 <h3 className="text-lg font-bold text-white mb-2">Send us a Message</h3>
+
+                                {errorMsg && (
+                                    <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/30 text-red-400 text-xs rounded-xl px-4 py-3">
+                                        <AlertCircle size={16} />
+                                        <span>{errorMsg}</span>
+                                    </div>
+                                )}
 
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                     <div>
