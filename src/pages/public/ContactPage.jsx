@@ -99,6 +99,7 @@ export default function ContactPage() {
                             <h3 className="text-base font-bold text-white">College Address</h3>
                             <p className="text-xs text-slate-400 leading-relaxed">
                                 Al Hamiya Arabic College,<br />
+                                Rest House Road, <br />
                                 Kalmunai,Sri Lanka.
                             </p>
                         </div>
